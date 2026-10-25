@@ -85,7 +85,7 @@
     },
     "release_when_paused": {
       "label": "Parar de vez depois de 5 minutos pausado",
-      "help": "Libera a memória de vídeo e mantém a última imagem na tela. Retomar demora um pouco mais."
+      "help": "Libera memória e mantém a última imagem na tela. O vídeo volta do mesmo ponto."
     },
     "autostart": {
       "label": "Iniciar com o sistema",
