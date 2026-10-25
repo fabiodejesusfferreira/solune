@@ -5,11 +5,28 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { App } from "./App";
-import type { Status } from "./daemon/protocol";
+import type { Policy, Status, Usage } from "./daemon/protocol";
 import { useDaemon } from "./daemon/store";
 import { useLibrary } from "./library/store";
 
 const stopped: Status = { state: "stopped", path: null, pause_reason: null, hwdec: null };
+const policy: Policy = {
+  settings: {
+    pause_on_fullscreen: true,
+    pause_on_battery: false,
+    pause_on_lock: true,
+    release_when_paused: true,
+  },
+  conditions: { fullscreen: false, on_battery: null, screen_locked: false },
+};
+const usage: Usage = {
+  cpu_permille: 49,
+  gpu_permille: 106,
+  memory_bytes: 165216256,
+  gpu_memory_bytes: 48234496,
+  fps: 30,
+  released: false,
+};
 
 type Handler = (cmd: string, args: Record<string, unknown>) => unknown;
 
@@ -27,6 +44,15 @@ function backend(overrides: Record<string, Handler> = {}) {
       }
       if (cmd === "daemon_status") {
         return stopped;
+      }
+      if (cmd === "daemon_policy") {
+        return policy;
+      }
+      if (cmd === "daemon_usage") {
+        return usage;
+      }
+      if (cmd === "plugin:autostart|is_enabled") {
+        return false;
       }
       return null;
     },
@@ -47,7 +73,8 @@ async function renderApp() {
 beforeEach(() => {
   localStorage.clear();
   useLibrary.setState({ items: [], selected: null });
-  useDaemon.setState({ connection: "connecting", status: null, error: null });
+  useDaemon.setState({ connection: "connecting", status: null, policy: null, error: null });
+  Object.defineProperty(navigator, "hardwareConcurrency", { value: 4, configurable: true });
   window.matchMedia ??= () =>
     ({ matches: false, addEventListener() {}, removeEventListener() {} }) as never;
 });
@@ -130,5 +157,111 @@ describe("biblioteca", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "O serviço do Solune não está rodando.",
     );
+  });
+});
+
+describe("regras e desempenho", () => {
+  async function openRules() {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(screen.getByRole("button", { name: "Regras e desempenho" }));
+    expect(screen.getByRole("heading", { name: "Regras e desempenho" })).toBeInTheDocument();
+    return user;
+  }
+
+  it("mostra o uso do daemon, com a CPU sobre o processador inteiro", async () => {
+    backend();
+    await openRules();
+    // 49 milésimos de um núcleo em 4 núcleos lógicos.
+    expect(await screen.findByText("1,2%")).toBeInTheDocument();
+    expect(screen.getByText("10,6%")).toBeInTheDocument();
+    expect(screen.getByText("158 MB")).toBeInTheDocument();
+    expect(screen.getByText("46 MB")).toBeInTheDocument();
+    expect(screen.getByText("30 fps")).toBeInTheDocument();
+    expect(screen.getByText("pico de 1,2%")).toBeInTheDocument();
+    expect(screen.getByRole("navigation")).toContainElement(
+      screen.getByRole("button", { name: "Regras e desempenho", current: "page" }),
+    );
+  });
+
+  it("mostra traço quando o sistema não informa um número", async () => {
+    backend({ daemon_usage: () => ({ ...usage, gpu_permille: null, gpu_memory_bytes: null }) });
+    await openRules();
+    expect(await screen.findAllByText("—")).toHaveLength(2);
+    expect(
+      screen.getByText("— quer dizer que este sistema não informa o número."),
+    ).toBeInTheDocument();
+  });
+
+  it("muda uma regra na hora e avisa o que esta sessão não detecta", async () => {
+    const calls = backend();
+    const user = await openRules();
+    const battery = await screen.findByRole("switch", { name: "Pausar na bateria" });
+    await screen.findByText("Não encontrei bateria neste computador.");
+    expect(battery).toHaveAccessibleDescription(
+      "Mostra a última imagem do vídeo até você ligar na tomada. Não encontrei bateria neste computador.",
+    );
+
+    await user.click(battery);
+    expect(battery).toHaveAttribute("aria-checked", "true");
+    expect(calls).toContainEqual({
+      cmd: "daemon_set_settings",
+      args: { settings: { ...policy.settings, pause_on_battery: true } },
+    });
+  });
+
+  it("volta a regra como estava se o daemon recusar", async () => {
+    backend({
+      daemon_set_settings: () => {
+        throw { code: "internal" };
+      },
+    });
+    const user = await openRules();
+    const lock = await screen.findByRole("switch", { name: "Pausar com a tela bloqueada" });
+    await user.click(lock);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Algo deu errado no serviço do Solune. Tente de novo.",
+    );
+    expect(lock).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("segue a política que o daemon anuncia", async () => {
+    backend();
+    await openRules();
+    const fullscreen = await screen.findByRole("switch", {
+      name: "Pausar quando um app estiver em tela cheia",
+    });
+    expect(fullscreen).toHaveAttribute("aria-checked", "true");
+    await act(() =>
+      emit("daemon://event", {
+        kind: "policy_changed",
+        policy: { ...policy, settings: { ...policy.settings, pause_on_fullscreen: false } },
+      }),
+    );
+    expect(fullscreen).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("liga o início com o sistema pelo plugin", async () => {
+    let enabled = false;
+    const calls = backend({
+      "plugin:autostart|is_enabled": () => enabled,
+      "plugin:autostart|enable": () => {
+        enabled = true;
+        return null;
+      },
+    });
+    const user = await openRules();
+    const autostart = screen.getByRole("switch", { name: "Iniciar com o sistema" });
+    await vi.waitFor(() => expect(autostart).toBeEnabled());
+    await user.click(autostart);
+    await vi.waitFor(() => expect(autostart).toHaveAttribute("aria-checked", "true"));
+    expect(calls.map((call) => call.cmd)).toContain("plugin:autostart|enable");
+  });
+
+  it("abre pela bandeja", async () => {
+    backend();
+    await renderApp();
+    await act(() => emit("app://navigate", "rules"));
+    expect(screen.getByRole("heading", { name: "Regras e desempenho" })).toBeInTheDocument();
   });
 });

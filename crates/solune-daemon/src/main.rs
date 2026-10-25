@@ -7,42 +7,65 @@
 //! ```text
 //! solune-daemon [--headless] [--hwdec MODO]
 //! solune-daemon play <arquivo> | pause | resume | stop | status | quit
+//! solune-daemon policy | usage | set <preferência> on|off
 //! ```
 
+mod config;
 mod mpv;
 mod player;
 #[cfg(target_os = "linux")]
 mod render;
 mod server;
+mod signals;
 mod surface;
+mod usage;
 
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
 use solune_ipc::transport::{Address, Client, ClientError, Listener};
-use solune_ipc::{Command, PlayerState, Reply, Status};
+use solune_ipc::{Command, PlayerState, Policy, Reply, Status, Usage};
 use tokio::sync::{Notify, broadcast, mpsc};
 use tracing_subscriber::EnvFilter;
 
+use crate::config::Store;
 use crate::player::{Config, Msg, Output, Player};
 
 const USAGE: &str = "\
 uso: solune-daemon [--headless] [--hwdec MODO]
-     solune-daemon play <arquivo> | pause | resume | stop | status | quit";
+     solune-daemon play <arquivo> | pause | resume | stop | status | quit
+     solune-daemon policy | usage | set <preferência> on|off
+
+preferências: pause_on_fullscreen, pause_on_battery, pause_on_lock, release_when_paused";
+
+#[derive(Debug)]
+enum Request {
+    Command(Command),
+    /// Muda uma preferência: lê as atuais, troca uma e manda de volta.
+    Set(String, bool),
+}
 
 #[derive(Debug)]
 enum Mode {
     Serve(Config),
-    Client(Command),
+    Client(Request),
 }
 
 fn parse_args() -> Result<Mode, String> {
     let mut args = std::env::args().skip(1);
     let mut output = Output::Wallpaper;
     let mut hwdec = String::from("auto-safe");
+    let serve = |output, hwdec| {
+        Mode::Serve(Config {
+            output,
+            hwdec,
+            store: Store::for_user(),
+            signals: output == Output::Wallpaper,
+        })
+    };
     let Some(first) = args.next() else {
-        return Ok(Mode::Serve(Config { output, hwdec }));
+        return Ok(serve(output, hwdec));
     };
     let command = match first.as_str() {
         "play" => Some(Command::Play {
@@ -52,12 +75,27 @@ fn parse_args() -> Result<Mode, String> {
         "resume" => Some(Command::Resume),
         "stop" => Some(Command::Stop),
         "status" => Some(Command::Status),
+        "policy" => Some(Command::GetPolicy),
+        "usage" => Some(Command::Usage),
         "quit" => Some(Command::Shutdown),
         _ => None,
     };
-    if let Some(command) = command {
+    let request = match (first.as_str(), command) {
+        (_, Some(command)) => Some(Request::Command(command)),
+        ("set", None) => {
+            let name = args.next().ok_or("set precisa de uma preferência")?;
+            let on = match args.next().as_deref() {
+                Some("on") => true,
+                Some("off") => false,
+                _ => return Err(format!("set {name} precisa de on ou off")),
+            };
+            Some(Request::Set(name, on))
+        }
+        _ => None,
+    };
+    if let Some(request) = request {
         return match args.next() {
-            None => Ok(Mode::Client(command)),
+            None => Ok(Mode::Client(request)),
             Some(extra) => Err(format!("argumento inesperado: {extra}\n{USAGE}")),
         };
     }
@@ -71,7 +109,7 @@ fn parse_args() -> Result<Mode, String> {
         }
         next = args.next();
     }
-    Ok(Mode::Serve(Config { output, hwdec }))
+    Ok(serve(output, hwdec))
 }
 
 fn main() -> ExitCode {
@@ -169,7 +207,27 @@ async fn terminate() {
     std::future::pending().await
 }
 
-async fn client(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+async fn client(request: Request) -> Result<(), Box<dyn std::error::Error>> {
+    let address = Address::default_for_user()?;
+    let client = Client::connect(&address).await?;
+    let command = match request {
+        Request::Command(command) => command,
+        Request::Set(name, on) => {
+            let Reply::Policy(policy) = client.request(Command::GetPolicy).await? else {
+                return Err("resposta inesperada do daemon".into());
+            };
+            let mut settings = policy.settings;
+            let field = match name.as_str() {
+                "pause_on_fullscreen" => &mut settings.pause_on_fullscreen,
+                "pause_on_battery" => &mut settings.pause_on_battery,
+                "pause_on_lock" => &mut settings.pause_on_lock,
+                "release_when_paused" => &mut settings.release_when_paused,
+                _ => return Err(format!("preferência desconhecida: {name}\n{USAGE}").into()),
+            };
+            *field = on;
+            Command::SetSettings { settings }
+        }
+    };
     let command = match command {
         // O daemon pode estar noutra pasta: o caminho vai absoluto.
         Command::Play { path } => Command::Play {
@@ -177,10 +235,10 @@ async fn client(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         },
         other => other,
     };
-    let address = Address::default_for_user()?;
-    let client = Client::connect(&address).await?;
     match client.request(command).await {
         Ok(Reply::Status(status)) => print_status(&status),
+        Ok(Reply::Policy(policy)) => print_policy(&policy),
+        Ok(Reply::Usage(usage)) => print_usage(&usage),
         Ok(Reply::Done) => println!("ok"),
         Err(ClientError::Daemon(code)) => {
             return Err(format!("o daemon recusou: {}", code.code()).into());
@@ -206,4 +264,45 @@ fn print_status(status: &Status) {
     if let Some(hwdec) = &status.hwdec {
         println!("hwdec em uso: {hwdec}");
     }
+}
+
+fn print_policy(policy: &Policy) {
+    let s = &policy.settings;
+    let on = |v: bool| if v { "sim" } else { "não" };
+    println!(
+        "pausar com app em tela cheia: {}",
+        on(s.pause_on_fullscreen)
+    );
+    println!("pausar na bateria: {}", on(s.pause_on_battery));
+    println!("pausar com a tela bloqueada: {}", on(s.pause_on_lock));
+    println!(
+        "liberar o decodificador após a pausa longa: {}",
+        on(s.release_when_paused)
+    );
+    let detected = |v: Option<bool>| match v {
+        None => "não detectado",
+        Some(true) => "sim",
+        Some(false) => "não",
+    };
+    let c = &policy.conditions;
+    println!("agora, app em tela cheia: {}", detected(c.fullscreen));
+    println!("agora, na bateria: {}", detected(c.on_battery));
+    println!("agora, tela bloqueada: {}", detected(c.screen_locked));
+}
+
+fn print_usage(usage: &Usage) {
+    let permille = |v: Option<u32>| v.map_or("?".into(), |v| format!("{},{}%", v / 10, v % 10));
+    let mib = |v: Option<u64>| v.map_or("?".into(), |v| format!("{:.1} MiB", v as f64 / 1048576.0));
+    println!("cpu: {} de um núcleo", permille(usage.cpu_permille));
+    println!("gpu: {}", permille(usage.gpu_permille));
+    println!("memória: {}", mib(usage.memory_bytes));
+    println!("memória de vídeo: {}", mib(usage.gpu_memory_bytes));
+    println!(
+        "quadros por segundo: {}",
+        usage.fps.map_or("?".into(), |v| v.to_string())
+    );
+    println!(
+        "decodificador liberado: {}",
+        if usage.released { "sim" } else { "não" }
+    );
 }

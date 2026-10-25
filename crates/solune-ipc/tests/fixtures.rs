@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use solune_ipc::{ErrorCode, Event, PauseReason, PlayerState, Status};
+use solune_ipc::{
+    Conditions, ErrorCode, Event, PauseReason, PlayerState, Policy, Settings, Status, Usage,
+};
 
 fn fixtures() -> Vec<(&'static str, Value)> {
     let playing = Status {
@@ -22,7 +24,33 @@ fn fixtures() -> Vec<(&'static str, Value)> {
         pause_reason: Some(PauseReason::Battery),
         ..playing.clone()
     };
+    let policy = Policy {
+        settings: Settings {
+            pause_on_battery: false,
+            ..Settings::default()
+        },
+        conditions: Conditions {
+            fullscreen: Some(true),
+            on_battery: None,
+            screen_locked: Some(false),
+        },
+    };
     vec![
+        ("policy", to_value(&policy)),
+        (
+            "usage",
+            json!({
+                "playing": to_value(&Usage {
+                    cpu_permille: Some(49),
+                    gpu_permille: Some(106),
+                    memory_bytes: Some(165_216_256),
+                    gpu_memory_bytes: Some(48_234_496),
+                    fps: Some(30),
+                    released: false,
+                }),
+                "unknown": to_value(&Usage::default()),
+            }),
+        ),
         (
             "status",
             json!({
@@ -38,6 +66,7 @@ fn fixtures() -> Vec<(&'static str, Value)> {
                 to_value(&Event::PlaybackFailed {
                     error: ErrorCode::UnsupportedFormat,
                 }),
+                to_value(&Event::PolicyChanged { policy }),
             ]),
         ),
         (

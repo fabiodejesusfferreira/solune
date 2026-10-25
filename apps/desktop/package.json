@@ -18,6 +18,7 @@
     "@solune/tokens": "workspace:*",
     "@solune/ui": "workspace:*",
     "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-autostart": "2.7.0",
     "@tauri-apps/plugin-dialog": "2.8.3",
     "lucide-react": "1.61.0",
     "react": "19.3.1",

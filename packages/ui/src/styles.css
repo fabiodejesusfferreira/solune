@@ -110,6 +110,17 @@
   background: var(--on-primary);
   transform: translateX(16px);
 }
+.sl-toggle[disabled] {
+  cursor: not-allowed;
+  color: var(--ink-muted);
+}
+.sl-toggle[disabled] .sl-toggle__track {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.sl-toggle[disabled] .sl-toggle__knob {
+  background: var(--line-strong);
+}
 
 .sl-chip {
   display: inline-flex;

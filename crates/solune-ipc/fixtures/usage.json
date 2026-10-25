@@ -1,0 +1,18 @@
+{
+  "playing": {
+    "cpu_permille": 49,
+    "fps": 30,
+    "gpu_memory_bytes": 48234496,
+    "gpu_permille": 106,
+    "memory_bytes": 165216256,
+    "released": false
+  },
+  "unknown": {
+    "cpu_permille": null,
+    "fps": null,
+    "gpu_memory_bytes": null,
+    "gpu_permille": null,
+    "memory_bytes": null,
+    "released": false
+  }
+}

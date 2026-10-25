@@ -11,8 +11,11 @@ mod daemon;
 mod i18n;
 mod tray;
 
-use tauri::WindowEvent;
+use tauri::{Manager, WindowEvent};
 use tracing_subscriber::EnvFilter;
+
+/// Argumento do login: abre só na bandeja, sem mostrar a janela.
+const HIDDEN_ARG: &str = "--hidden";
 
 fn main() {
     tracing_subscriber::fmt()
@@ -29,9 +32,17 @@ fn main() {
             tray::show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        // Ao iniciar com o sistema, o app abre só na bandeja.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .manage(daemon::Daemon::default())
         .invoke_handler(tauri::generate_handler![
             daemon::daemon_status,
+            daemon::daemon_policy,
+            daemon::daemon_set_settings,
+            daemon::daemon_usage,
             daemon::daemon_play,
             daemon::daemon_pause,
             daemon::daemon_resume,
@@ -39,6 +50,16 @@ fn main() {
         ])
         .setup(|app| {
             tray::create(app.handle())?;
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                tray::show_main(app.handle());
+            }
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                handle
+                    .state::<daemon::Daemon>()
+                    .ensure_running(&handle)
+                    .await;
+            });
             Ok(())
         })
         .on_window_event(|window, event| {

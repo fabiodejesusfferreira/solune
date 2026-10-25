@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "O que a janela principal pode chamar além dos comandos do app",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
 }

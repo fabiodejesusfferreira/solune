@@ -25,6 +25,7 @@ impl Daemon {
         let child = Process::new(env!("CARGO_BIN_EXE_solune-daemon"))
             .args(["--headless", "--hwdec", "no"])
             .env(SOCKET_ENV, &socket)
+            .env("SOLUNE_CONFIG_DIR", dir.path().join("config"))
             .stdout(Stdio::null())
             .spawn()
             .expect("subir o daemon");

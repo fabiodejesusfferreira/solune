@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn acha_texto_aninhado_e_devolve_a_chave_quando_falta() {
-        assert_eq!(tr("tray.quit"), "Sair");
+        assert_eq!(tr("tray.quit"), "Sair do Solune");
         // Por variável, para o check do catálogo não contar como uso.
         for missing in ["tray.nao_existe", "tray"] {
             assert_eq!(tr(missing), missing);

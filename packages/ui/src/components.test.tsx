@@ -32,6 +32,26 @@ describe("Toggle", () => {
     fireEvent.click(toggle);
     expect(onChange).toHaveBeenCalledWith(true);
   });
+
+  it("liga a explicação e não muda quando desabilitado", () => {
+    const onChange = vi.fn();
+    render(
+      <>
+        <Toggle
+          checked
+          disabled
+          onChange={onChange}
+          label="Pausar na bateria"
+          describedBy="ajuda"
+        />
+        <p id="ajuda">Mostra a última imagem do vídeo.</p>
+      </>,
+    );
+    const toggle = screen.getByRole("switch", { name: "Pausar na bateria" });
+    expect(toggle).toHaveAccessibleDescription("Mostra a última imagem do vídeo.");
+    fireEvent.click(toggle);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("Chip", () => {

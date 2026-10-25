@@ -2,7 +2,7 @@
 
 Solune é um app de desktop de código aberto que põe vídeos e imagens como papel de parede, com carrossel e troca automática entre os temas claro e escuro. O carro-chefe é o vídeo, tocando com baixo uso de CPU e GPU.
 
-O projeto está no começo: o daemon já toca um vídeo como papel de parede no Linux, e o app tem a primeira tela, a biblioteca, falando com o daemon. Contexto, decisões e pesquisa estão em [`docs/Solune.md`](docs/Solune.md).
+O projeto está no começo: o daemon já toca um vídeo como papel de parede no Linux e pausa sozinho em tela cheia, na bateria e com a tela bloqueada. O app tem duas telas, a biblioteca e Regras e desempenho, falando com o daemon. Contexto, decisões e pesquisa estão em [`docs/Solune.md`](docs/Solune.md).
 
 ## Estrutura
 
@@ -43,6 +43,8 @@ pnpm dev         # compila o daemon e abre o app com recarga da interface
 
 Ao abrir, o app procura o daemon e, se ele não estiver rodando, inicia o `solune-daemon` que está na mesma pasta do executável (`SOLUNE_DAEMON` aponta outro). Fechar a janela deixa o app na bandeja, com o vídeo tocando. Sair pela bandeja encerra o app e o daemon, e o papel de parede do sistema volta.
 
+A tela Regras e desempenho mostra o uso do daemon (CPU, GPU, memória, memória de vídeo e quadros por segundo) e liga ou desliga as regras de pausa e o início com o sistema. Iniciando com o sistema, o app abre só na bandeja (argumento `--hidden`).
+
 Outros scripts:
 
 | Script | O que faz |
@@ -69,6 +71,9 @@ cargo daemon play caminho/do/video.mp4
 cargo daemon pause      # e resume
 cargo daemon status     # estado, arquivo e decodificação em uso
 cargo daemon stop       # volta o papel de parede do sistema
+cargo daemon policy     # regras de pausa e o que o daemon detecta agora
+cargo daemon usage      # CPU, GPU, memória e quadros do daemon
+cargo daemon set pause_on_battery off   # liga ou desliga uma regra
 cargo daemon quit
 ```
 
@@ -84,6 +89,22 @@ O daemon escolhe a superfície pela sessão:
 
 No Linux, o libwayland, o libX11 e o libEGL são carregados em tempo de execução, então o build não precisa de pacotes -dev além do libmpv.
 
+### Pausa automática
+
+O daemon pausa sozinho quando ninguém vê o wallpaper, e cada regra pode ser desligada no app ou com `cargo daemon set`. As regras são `pause_on_fullscreen`, `pause_on_battery`, `pause_on_lock` e `release_when_paused`. Pausado na bateria, a tela continua com a última imagem do vídeo.
+
+| Sinal | Como o daemon detecta | Status |
+| --- | --- | --- |
+| App em tela cheia (X11) | `_NET_WM_STATE_FULLSCREEN` pelo EWMH, na área de trabalho atual | Testado em Xvfb com openbox; falta o Cinnamon de verdade |
+| App em tela cheia (Wayland) | wlr-foreign-toplevel-management: Sway, Hyprland | Testado num Sway sem tela. O KDE Plasma não tem esse protocolo e fica sem detecção |
+| Bateria | `/sys/class/power_supply` a cada 10 s | Testado só com arquivos de mentira |
+| Tela bloqueada | D-Bus: protetor de tela do Cinnamon, GNOME, MATE e KDE, e o `LockedHint` do logind | Testado só com um sinal de mentira num barramento de teste |
+| Windows | — | Ainda não: as regras ficam sem detecção |
+
+Depois de 5 minutos pausado (`release_when_paused`), o daemon troca o vídeo por uma foto do quadro atual, e o mpv solta o decodificador. Retomar carrega o vídeo de novo na mesma posição. `SOLUNE_RELEASE_AFTER_SECS` troca os 5 minutos, para testes e medições.
+
+As regras e o último wallpaper ficam em `~/.config/solune` (`settings.json` e `state.json`; `%APPDATA%\Solune` no Windows, `SOLUNE_CONFIG_DIR` troca a pasta). Ao iniciar, o daemon volta a tocar o último wallpaper. Decisões em [`docs/decisions/0004-politica-de-pausa.md`](docs/decisions/0004-politica-de-pausa.md).
+
 Limitações conhecidas:
 
 - No wlroots, um outro programa de papel de parede na mesma camada (como o `swaybg` ou o `hyprpaper`) pode ficar por cima do vídeo. Feche-o enquanto testa.
@@ -95,7 +116,7 @@ Limitações conhecidas:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-SOLUNE_TEST_VIDEO=video-curto.mp4 cargo test -p solune-daemon -- --ignored
+SOLUNE_TEST_VIDEO=video-curto.mp4 dbus-run-session -- cargo test -p solune-daemon -- --ignored
 cargo deny check
 pnpm install && pnpm tokens
 pnpm lint && pnpm typecheck && pnpm test

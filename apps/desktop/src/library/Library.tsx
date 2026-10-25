@@ -5,6 +5,7 @@ import { Film, Pause, Play, Plus, Square, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { daemon } from "../daemon/api";
+import { ConnectionNotice } from "../daemon/ConnectionNotice";
 import { useDaemon } from "../daemon/store";
 import { useLibrary, videoExtensions } from "./store";
 
@@ -111,7 +112,7 @@ function PlayerBar({ selected, onApply, onPause, onResume, onStop }: PlayerBarPr
         ) : null}
         <ConnectionNotice />
         {error ? (
-          <p role="alert" className="player__error text-caption">
+          <p role="alert" className="alert-text text-caption">
             {t(`error.${error}`)}
           </p>
         ) : null}
@@ -142,29 +143,6 @@ function PlayerBar({ selected, onApply, onPause, onResume, onStop }: PlayerBarPr
       </div>
     </footer>
   );
-}
-
-function ConnectionNotice() {
-  const { t } = useTranslation();
-  const connection = useDaemon((state) => state.connection);
-  switch (connection) {
-    case "connecting":
-      return <span className="text-caption">{t("daemon.connecting")}</span>;
-    case "offline":
-      return (
-        <p role="alert" className="player__error text-caption">
-          {t("daemon.offline")}
-        </p>
-      );
-    case "incompatible":
-      return (
-        <p role="alert" className="player__error text-caption">
-          {t("daemon.incompatible")}
-        </p>
-      );
-    case "online":
-      return null;
-  }
 }
 
 /** Arquivos soltos na janela entram na biblioteca. Devolve se há algo sendo arrastado. */

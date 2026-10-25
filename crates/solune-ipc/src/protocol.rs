@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Versão do protocolo. Muda quando uma mensagem muda de forma
 /// incompatível; cliente e daemon de versões diferentes não conversam.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Mensagem do cliente para o daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +39,14 @@ pub enum Command {
     /// Para e devolve a tela ao papel de parede do sistema.
     Stop,
     Status,
+    /// Preferências das pausas e o que o daemon detecta do sistema agora.
+    GetPolicy,
+    /// Troca as preferências das pausas. O daemon salva e aplica na hora.
+    SetSettings {
+        settings: Settings,
+    },
+    /// Quanto o daemon está usando de CPU, GPU e memória.
+    Usage,
     /// Encerra o daemon.
     Shutdown,
 }
@@ -78,6 +86,8 @@ pub enum Outcome {
 pub enum Reply {
     Done,
     Status(Status),
+    Policy(Policy),
+    Usage(Usage),
 }
 
 /// Estado do player, como a interface mostra.
@@ -123,6 +133,67 @@ impl PauseReason {
     }
 }
 
+/// Preferências das pausas automáticas, salvas pelo daemon. Um campo que
+/// falta no arquivo ou na mensagem vale o padrão, para versões novas
+/// acrescentarem preferências sem quebrar as antigas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub pause_on_fullscreen: bool,
+    pub pause_on_battery: bool,
+    pub pause_on_lock: bool,
+    /// Depois de 5 minutos pausado, troca o vídeo pela última imagem e
+    /// libera o decodificador e a memória de vídeo.
+    pub release_when_paused: bool,
+}
+
+impl Default for Settings {
+    /// Tudo ligado: o carro-chefe é o baixo consumo.
+    fn default() -> Self {
+        Self {
+            pause_on_fullscreen: true,
+            pause_on_battery: true,
+            pause_on_lock: true,
+            release_when_paused: true,
+        }
+    }
+}
+
+/// O que o daemon detecta do sistema agora. `None` quando o sinal não pode
+/// ser detectado nesta sessão (sem bateria, compositor sem o protocolo...).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Conditions {
+    /// Algum app em tela cheia cobre o papel de parede.
+    pub fullscreen: Option<bool>,
+    pub on_battery: Option<bool>,
+    pub screen_locked: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Policy {
+    pub settings: Settings,
+    pub conditions: Conditions,
+}
+
+/// Uso de recursos do processo do daemon. `None` quando o sistema não
+/// informa. Porcentagens vão em milésimos para o protocolo não ter números
+/// de ponto flutuante: 25 é 2,5%.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    /// CPU desde a leitura anterior, em milésimos de um núcleo.
+    pub cpu_permille: Option<u32>,
+    /// Fração do tempo em que a GPU trabalhou para o daemon, em milésimos.
+    pub gpu_permille: Option<u32>,
+    /// Memória residente do processo.
+    pub memory_bytes: Option<u64>,
+    /// Memória que a GPU reservou para o daemon (na integrada, sai da RAM).
+    pub gpu_memory_bytes: Option<u64>,
+    /// Quadros por segundo que o vídeo está mostrando agora.
+    pub fps: Option<u32>,
+    /// O decodificador foi liberado depois de muito tempo em pausa.
+    pub released: bool,
+}
+
 /// Erro com código estável. Cada um tem texto em `error.<código>`, exceto
 /// `incompatible`, que a interface mostra como `daemon.incompatible`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -161,6 +232,8 @@ pub enum Event {
     StatusChanged { status: Status },
     /// A reprodução falhou depois de aceita, como um arquivo corrompido no meio.
     PlaybackFailed { error: ErrorCode },
+    /// Mudaram as preferências ou o que o daemon detecta do sistema.
+    PolicyChanged { policy: Policy },
 }
 
 #[cfg(test)]
@@ -233,6 +306,18 @@ mod tests {
                 format!("\"{}\"", reason.code())
             );
         }
+    }
+
+    #[test]
+    fn preferencia_que_falta_vale_o_padrao() {
+        let settings: Settings = serde_json::from_str(r#"{"pause_on_battery":false}"#).unwrap();
+        assert_eq!(
+            settings,
+            Settings {
+                pause_on_battery: false,
+                ..Settings::default()
+            }
+        );
     }
 
     #[test]

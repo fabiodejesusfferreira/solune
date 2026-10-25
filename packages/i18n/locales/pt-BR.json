@@ -2,6 +2,11 @@
   "app": {
     "name": "Solune"
   },
+  "nav": {
+    "label": "Navegação",
+    "library": "Biblioteca",
+    "rules": "Regras e desempenho"
+  },
   "library": {
     "title": "Biblioteca",
     "empty": "Arraste um vídeo para começar",
@@ -41,6 +46,51 @@
   },
   "tray": {
     "open": "Abrir o Solune",
-    "quit": "Sair"
+    "rules": "Regras e desempenho",
+    "quit": "Sair do Solune"
+  },
+  "rules": {
+    "title": "Regras e desempenho",
+    "intro": "O Solune pausa sozinho quando você não está vendo o wallpaper. Aqui você vê quanto ele usa e decide quando parar.",
+    "usage": {
+      "title": "Uso agora",
+      "cpu": "CPU",
+      "gpu": "GPU",
+      "memory": "RAM",
+      "gpu_memory": "Memória de vídeo",
+      "fps": "Quadros",
+      "fps_value": "{{value}} fps",
+      "unknown": "— quer dizer que este sistema não informa o número.",
+      "released": "Memória de vídeo liberada",
+      "chart": "CPU nos últimos 60 segundos",
+      "peak": "pico de {{value}}",
+      "chart_label": "CPU nos últimos 60 segundos, com pico de {{value}}",
+      "measuring": "Medindo"
+    },
+    "when": "Quando pausar",
+    "pause_on_fullscreen": {
+      "label": "Pausar quando um app estiver em tela cheia",
+      "help": "Jogos e vídeos. O Solune volta sozinho quando você sai.",
+      "undetected": "Esta sessão não avisa quando um app entra em tela cheia, então essa regra não vale aqui."
+    },
+    "pause_on_battery": {
+      "label": "Pausar na bateria",
+      "help": "Mostra a última imagem do vídeo até você ligar na tomada.",
+      "undetected": "Não encontrei bateria neste computador."
+    },
+    "pause_on_lock": {
+      "label": "Pausar com a tela bloqueada",
+      "help": "Ninguém está vendo, então a placa de vídeo descansa.",
+      "undetected": "Esta sessão não avisa quando a tela é bloqueada, então essa regra não vale aqui."
+    },
+    "release_when_paused": {
+      "label": "Parar de vez depois de 5 minutos pausado",
+      "help": "Libera a memória de vídeo e mantém a última imagem na tela. Retomar demora um pouco mais."
+    },
+    "autostart": {
+      "label": "Iniciar com o sistema",
+      "help": "Fica na bandeja, sem abrir a janela.",
+      "error": "Não consegui mudar o início com o sistema."
+    }
   }
 }

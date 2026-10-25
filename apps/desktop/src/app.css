@@ -17,22 +17,82 @@ body {
 }
 
 h1,
-p {
+h2,
+p,
+dl,
+dd,
+figure {
   margin: 0;
 }
 
 .app {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 232px 1fr;
   height: 100%;
 }
 
-.app__rail {
+.app__sidebar {
   display: flex;
-  justify-content: center;
-  padding-top: var(--space-5);
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-4);
   background: var(--surface-1);
   border-right: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+}
+
+.brand__name {
+  font: var(--text-title);
+  letter-spacing: -0.5px;
+}
+
+.brand__sun {
+  color: var(--sun-text);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--ink-muted);
+  font: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav__item:hover {
+  color: var(--ink);
+}
+
+.nav__item[aria-current="page"] {
+  background: var(--surface-2);
+  color: var(--ink);
+  font: var(--text-body-strong);
+}
+
+.nav__item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .library {
@@ -114,7 +174,7 @@ p {
   color: var(--ink-muted);
 }
 
-.player__error {
+.alert-text {
   color: var(--danger);
 }
 
@@ -122,4 +182,145 @@ p {
   display: flex;
   gap: var(--space-2);
   flex-shrink: 0;
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.rules__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rules__intro,
+.rules__muted,
+.rules__help {
+  color: var(--ink-muted);
+}
+
+.rules__intro {
+  max-width: 560px;
+}
+
+.rules__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+
+.rules__card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rules__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.rules__metric {
+  display: flex;
+  flex: 1 1 120px;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-0);
+}
+
+.rules__metric dt {
+  color: var(--ink-muted);
+}
+
+.rules__value {
+  font: 500 24px / 30px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rules__chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rules__chart-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--ink-muted);
+}
+
+.rules__data {
+  font: var(--text-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.rules__chart svg {
+  display: block;
+}
+
+.rules__chart-axis,
+.rules__chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.rules__chart-grid {
+  stroke-dasharray: 2 6;
+}
+
+.rules__chart-line {
+  fill: none;
+  stroke: var(--sun-text);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.rules__chart-dot {
+  stroke: var(--sun);
+  stroke-width: 8;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.rules__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 640px;
+}
+
+.rules__rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.rules__help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* Alinha com o texto do interruptor: trilho de 38px e o espaço até o nome. */
+  margin-left: calc(38px + var(--space-3));
 }

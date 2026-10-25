@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use solune_ipc::transport::{Address, Client, ClientError};
-use solune_ipc::{Command, Reply, Status};
+use solune_ipc::{Command, Policy, Reply, Settings, Status, Usage};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, broadcast};
 
@@ -67,7 +67,38 @@ pub async fn daemon_status(
 ) -> Result<Status, CommandError> {
     match daemon.request(&app, Command::Status).await? {
         Reply::Status(status) => Ok(status),
-        Reply::Done => Err(ClientError::Unexpected.into()),
+        _ => Err(ClientError::Unexpected.into()),
+    }
+}
+
+#[tauri::command]
+pub async fn daemon_policy(
+    app: AppHandle,
+    daemon: State<'_, Daemon>,
+) -> Result<Policy, CommandError> {
+    match daemon.request(&app, Command::GetPolicy).await? {
+        Reply::Policy(policy) => Ok(policy),
+        _ => Err(ClientError::Unexpected.into()),
+    }
+}
+
+#[tauri::command]
+pub async fn daemon_set_settings(
+    app: AppHandle,
+    daemon: State<'_, Daemon>,
+    settings: Settings,
+) -> Result<(), CommandError> {
+    daemon.done(&app, Command::SetSettings { settings }).await
+}
+
+#[tauri::command]
+pub async fn daemon_usage(
+    app: AppHandle,
+    daemon: State<'_, Daemon>,
+) -> Result<Usage, CommandError> {
+    match daemon.request(&app, Command::Usage).await? {
+        Reply::Usage(usage) => Ok(usage),
+        _ => Err(ClientError::Unexpected.into()),
     }
 }
 
@@ -111,6 +142,14 @@ impl Daemon {
                 self.client(app).await?.request(command).await
             }
             other => other,
+        }
+    }
+
+    /// Conecta (e inicia o daemon, se preciso) sem esperar a interface: ao
+    /// abrir o app no login, o wallpaper volta antes da janela aparecer.
+    pub async fn ensure_running(&self, app: &AppHandle) {
+        if let Err(e) = self.client(app).await {
+            tracing::warn!("o daemon não iniciou: {e}");
         }
     }
 

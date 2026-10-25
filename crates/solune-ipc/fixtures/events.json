@@ -11,5 +11,21 @@
   {
     "error": "unsupported_format",
     "kind": "playback_failed"
+  },
+  {
+    "kind": "policy_changed",
+    "policy": {
+      "conditions": {
+        "fullscreen": true,
+        "on_battery": null,
+        "screen_locked": false
+      },
+      "settings": {
+        "pause_on_battery": false,
+        "pause_on_fullscreen": true,
+        "pause_on_lock": true,
+        "release_when_paused": true
+      }
+    }
   }
 ]
