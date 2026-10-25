@@ -171,10 +171,11 @@ impl<W: Wakeup> RenderContext<W> {
         unsafe { mpv_render_context_update(self.raw) & UPDATE_FRAME != 0 }
     }
 
-    /// Desenha o quadro atual no framebuffer padrão, com o tamanho dado.
-    pub fn render(&self, width: i32, height: i32) -> Result<(), mpv::Error> {
+    /// Desenha o quadro atual no framebuffer `fbo` (0 é o da janela), com
+    /// o tamanho dado. Sem quadro novo, desenha de novo o último.
+    pub fn render(&self, fbo: u32, width: i32, height: i32) -> Result<(), mpv::Error> {
         let mut fbo = OpenGlFbo {
-            fbo: 0,
+            fbo: fbo as c_int,
             w: width,
             h: height,
             internal_format: 0,

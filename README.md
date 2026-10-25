@@ -101,7 +101,7 @@ O daemon pausa sozinho quando ninguém vê o wallpaper, e cada regra pode ser de
 | Tela bloqueada | D-Bus: protetor de tela do Cinnamon, GNOME, MATE e KDE, e o `LockedHint` do logind | Testado só com um sinal de mentira num barramento de teste |
 | Windows | — | Ainda não: as regras ficam sem detecção |
 
-Depois de 5 minutos pausado (`release_when_paused`), o daemon troca o vídeo por uma foto do quadro atual, e o mpv solta o decodificador. Retomar carrega o vídeo de novo na mesma posição. `SOLUNE_RELEASE_AFTER_SECS` troca os 5 minutos, para testes e medições.
+Depois de 5 minutos pausado (`release_when_paused`), o daemon guarda o quadro atual na GPU, para o arquivo e desliga o render do libmpv, que solta o decodificador e o que tinha na memória de vídeo. A tela continua com o mesmo quadro. Retomar religa o render e abre o vídeo na mesma posição. `SOLUNE_RELEASE_AFTER_SECS` troca os 5 minutos, para testes e medições.
 
 As regras e o último wallpaper ficam em `~/.config/solune` (`settings.json` e `state.json`; `%APPDATA%\Solune` no Windows, `SOLUNE_CONFIG_DIR` troca a pasta). Ao iniciar, o daemon volta a tocar o último wallpaper. Decisões em [`docs/decisions/0004-politica-de-pausa.md`](docs/decisions/0004-politica-de-pausa.md).
 

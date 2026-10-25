@@ -36,8 +36,8 @@ use smithay_client_toolkit::{
 };
 use wayland_egl::WlEglSurface;
 
-use super::Ready;
-use super::gl::{Gl, PingWaker};
+use super::gl::Gl;
+use super::{Control, Ready};
 use crate::mpv::Mpv;
 use crate::render::Interop;
 
@@ -68,7 +68,7 @@ pub(super) fn run(
     player: Arc<Mpv>,
     hwdec_off: bool,
     ready: Ready,
-    stop: channel::Channel<()>,
+    control: channel::Channel<Control>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::connect_to_env()
         .map_err(|e| format!("sem conexão com o compositor Wayland: {e}"))?;
@@ -100,8 +100,8 @@ pub(super) fn run(
         .map_err(|e| format!("falha ao registrar o wakeup: {e}"))?;
 
     handle
-        .insert_source(stop, |_, _, app: &mut App| app.stop = true)
-        .map_err(|e| format!("falha ao registrar o canal de parada: {e}"))?;
+        .insert_source(control, |event, _, app: &mut App| app.control(event))
+        .map_err(|e| format!("falha ao registrar o canal de controle: {e}"))?;
 
     let mut app = App {
         registry_state: RegistryState::new(&globals),
@@ -156,7 +156,7 @@ impl App {
             Interop::Wayland(wl_display)
         };
 
-        let waker = PingWaker(self.waker.take().ok_or("wakeup já usado")?);
+        let ping = self.waker.take().ok_or("wakeup já usado")?;
         // SAFETY: wl_display é a conexão viva deste processo e a janela EGL
         // fica em Target junto com o Gl, que sai primeiro.
         let gl = unsafe {
@@ -165,7 +165,7 @@ impl App {
                 window.ptr() as egl::NativeWindowType,
                 interop,
                 Arc::clone(&self.player),
-                waker,
+                ping,
             )
         }?;
         self.target = Some(Target { gl, window });
@@ -174,10 +174,40 @@ impl App {
     }
 
     fn draw_if_needed(&mut self) {
-        let Some(target) = &self.target else { return };
+        let Some(target) = &mut self.target else {
+            return;
+        };
         let (width, height) = self.size;
         if let Err(e) = target.gl.draw_if_needed(width, height) {
             self.fail(e);
+        }
+    }
+
+    fn control(&mut self, event: channel::Event<Control>) {
+        let (width, height) = self.size;
+        match event {
+            channel::Event::Msg(Control::Freeze(reply)) => {
+                let result = match &mut self.target {
+                    Some(target) => target.gl.freeze(width, height).map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Release(reply)) => {
+                let result = match &mut self.target {
+                    Some(target) => target.gl.release().map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Thaw(reply)) => {
+                let result = match &mut self.target {
+                    Some(target) => target.gl.thaw().map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Stop) | channel::Event::Closed => self.stop = true,
         }
     }
 }
@@ -200,7 +230,14 @@ impl LayerShellHandler for App {
         self.size = (w.max(1) as i32, h.max(1) as i32);
         tracing::debug!("superfície configurada: {}x{}", self.size.0, self.size.1);
         match &self.target {
-            Some(target) => target.window.resize(self.size.0, self.size.1, 0, 0),
+            Some(target) => {
+                target.window.resize(self.size.0, self.size.1, 0, 0);
+                // Com o render desligado, ninguém mais desenha: o quadro
+                // guardado volta no tamanho novo.
+                if let Err(e) = target.gl.redraw_still(self.size.0, self.size.1) {
+                    self.fail(e);
+                }
+            }
             None => {
                 if let Err(e) = self.setup_gl() {
                     self.fail(e);

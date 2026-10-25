@@ -4,7 +4,7 @@
 //! os avisos do libmpv e o fim da superfície, nessa ordem de chegada. Assim
 //! o estado nunca é mexido de dois lugares ao mesmo tempo.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
@@ -54,12 +54,15 @@ fn release_after() -> Duration {
         .map_or(RELEASE_AFTER, Duration::from_secs)
 }
 
-/// Onde fica a última imagem do vídeo enquanto o decodificador está liberado.
-fn frame_path() -> PathBuf {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(|d| PathBuf::from(d).join("solune"))
-        .unwrap_or_else(std::env::temp_dir);
-    dir.join(format!("frame-{}.png", std::process::id()))
+/// Devolve ao sistema a memória que o processo soltou. O malloc do glibc
+/// guarda o que foi liberado para usar de novo, e sem isso a RAM do daemon
+/// não desce depois de liberar o decodificador.
+fn trim_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: malloc_trim não tem pré-condições.
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }
 
 /// Mensagens que o ator recebe.
@@ -110,13 +113,6 @@ struct Released {
     position: Option<String>,
 }
 
-/// Pular para `position` quando `path` terminar de abrir.
-#[derive(Debug)]
-struct Seek {
-    path: String,
-    position: String,
-}
-
 pub struct Player {
     mpv: Arc<Mpv>,
     config: Config,
@@ -132,7 +128,9 @@ pub struct Player {
     /// Muda a cada pausa, para um timer velho não liberar a pausa nova.
     pause_generation: u64,
     released: Option<Released>,
-    seek: Option<Seek>,
+    /// O vídeo foi recarregado com a opção `start`, que precisa voltar ao
+    /// padrão depois que o arquivo abrir (senão vale para o próximo).
+    start_pending: bool,
     /// Quando o vídeo começou a voltar da liberação; o log mostra quanto
     /// levou até o primeiro quadro.
     reloading_since: Option<Instant>,
@@ -169,8 +167,6 @@ impl Player {
             ("hwdec", &config.hwdec),
             ("loop-file", "inf"),
             ("aid", "no"),
-            // A última imagem, quando o decodificador é liberado, fica na tela.
-            ("image-display-duration", "inf"),
         ])?);
         let watcher = Watcher::spawn(Arc::clone(&mpv), inbox.clone());
         let pauses = Pauses::new(config.store.settings());
@@ -201,7 +197,7 @@ impl Player {
             paused_since: None,
             pause_generation: 0,
             released: None,
-            seek: None,
+            start_pending: false,
             reloading_since: None,
             sampler: Sampler::default(),
         })
@@ -317,7 +313,7 @@ impl Player {
             return Err(ErrorCode::FileNotFound);
         };
         self.ensure_surface()?;
-        self.forget_release();
+        self.forget_release()?;
         self.mpv
             .command(&["loadfile", file])
             .and_then(|()| self.mpv.set_property("pause", "no"))
@@ -471,31 +467,30 @@ impl Player {
         }
     }
 
-    /// Troca o vídeo pausado pela imagem do quadro atual. O libmpv fecha o
-    /// decodificador e a memória de vídeo dele; na tela, nada muda.
+    /// Libera o decodificador numa pausa longa. A superfície guarda o
+    /// quadro atual na tela; o arquivo para, e com ele o demuxer e o
+    /// decodificador; por fim a superfície desliga o render do libmpv, que
+    /// solta as texturas e o interop com a GPU. Na tela, nada muda.
     fn release(&mut self) {
-        if self.config.output == Output::Headless {
-            return;
-        }
-        let position = self.mpv.property("time-pos");
-        let frame = frame_path();
-        let Some(frame_str) = frame.to_str() else {
+        let Some(surface) = &self.surface else {
             return;
         };
-        if let Some(dir) = frame.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        let position = self.mpv.property("time-pos");
+        if let Err(e) = tokio::task::block_in_place(|| surface.freeze()) {
+            tracing::warn!("não deu para liberar o decodificador: {e}");
+            return;
         }
-        let result = self
-            .mpv
-            .command(&["screenshot-to-file", frame_str, "video"])
-            .and_then(|()| self.mpv.command(&["loadfile", frame_str]));
-        match result {
-            Ok(()) => {
-                tracing::info!("decodificador liberado depois da pausa longa");
-                self.released = Some(Released { position });
-            }
-            Err(e) => tracing::warn!("não deu para liberar o decodificador: {e}"),
+        // Daqui em diante o ponto de volta vale, mesmo se um passo falhar:
+        // retomar religa o render e recarrega o vídeo.
+        self.released = Some(Released { position });
+        if let Err(e) = self.mpv.command(&["stop"]) {
+            tracing::warn!("{e}");
         }
+        if let Err(e) = tokio::task::block_in_place(|| surface.release()) {
+            tracing::warn!("o render do libmpv não foi desligado: {e}");
+        }
+        trim_heap();
+        tracing::info!("decodificador liberado depois da pausa longa");
     }
 
     /// Volta ao vídeo, do ponto onde estava.
@@ -503,14 +498,20 @@ impl Player {
         let Some(released) = self.released.take() else {
             return Ok(());
         };
-        let _ = std::fs::remove_file(frame_path());
-        let Some(file) = self.status.path.as_deref().and_then(Path::to_str) else {
+        let Some(file) = self.status.path.clone() else {
             return Err(ErrorCode::Internal);
         };
-        self.seek = released.position.map(|position| Seek {
-            path: file.to_owned(),
-            position,
-        });
+        let Some(file) = file.to_str() else {
+            return Err(ErrorCode::Internal);
+        };
+        self.thaw_surface()?;
+        if let Some(position) = &released.position {
+            // Abrir já na posição evita mostrar o começo do vídeo antes.
+            match self.mpv.set_property("start", position) {
+                Ok(()) => self.start_pending = true,
+                Err(e) => tracing::warn!("{e}"),
+            }
+        }
         self.mpv.command(&["loadfile", file]).map_err(|e| {
             tracing::error!("{e}");
             ErrorCode::Internal
@@ -520,13 +521,34 @@ impl Player {
         Ok(())
     }
 
-    /// Esquece a imagem e o ponto de volta (o vídeo vai ser trocado ou parado).
-    fn forget_release(&mut self) {
-        if self.released.take().is_some() {
-            let _ = std::fs::remove_file(frame_path());
-        }
-        self.seek = None;
+    /// Liga o render do libmpv de novo, se a superfície existe.
+    fn thaw_surface(&self) -> Result<(), ErrorCode> {
+        let Some(surface) = &self.surface else {
+            return Ok(());
+        };
+        tokio::task::block_in_place(|| surface.thaw()).map_err(|e| {
+            tracing::error!("não deu para religar o render: {e}");
+            ErrorCode::Internal
+        })
+    }
+
+    /// Esquece o ponto de volta antes de trocar de vídeo, religando o render.
+    fn forget_release(&mut self) -> Result<(), ErrorCode> {
         self.reloading_since = None;
+        self.clear_start();
+        if self.released.take().is_some() {
+            self.thaw_surface()?;
+        }
+        Ok(())
+    }
+
+    /// Volta a opção `start` ao padrão: o próximo arquivo abre do começo.
+    fn clear_start(&mut self) {
+        if std::mem::take(&mut self.start_pending)
+            && let Err(e) = self.mpv.set_property("start", "none")
+        {
+            tracing::warn!("{e}");
+        }
     }
 
     fn set_pause(&self, paused: bool) -> Result<(), ErrorCode> {
@@ -542,7 +564,10 @@ impl Player {
         if let Err(e) = self.mpv.command(&["stop"]) {
             tracing::warn!("{e}");
         }
-        self.forget_release();
+        // A superfície vai embora, então o render não precisa voltar.
+        self.released = None;
+        self.reloading_since = None;
+        self.clear_start();
         self.paused_since = None;
         self.pauses.reset();
         if let Some(mut surface) = self.surface.take() {
@@ -553,24 +578,7 @@ impl Player {
 
     fn on_note(&mut self, note: Note) {
         match note {
-            Note::Loaded => {
-                let Some(seek) = self.seek.take() else {
-                    return;
-                };
-                if self.mpv.property("path").as_deref() != Some(seek.path.as_str()) {
-                    // Ainda é a imagem que abriu; o vídeo vem a seguir.
-                    self.seek = Some(seek);
-                    return;
-                }
-                if let Err(e) = self
-                    .mpv
-                    .command(&["seek", &seek.position, "absolute", "exact"])
-                {
-                    tracing::warn!("{e}");
-                }
-            }
-            // A imagem que fica no lugar do vídeo não muda a decodificação.
-            Note::Playing { .. } if self.released.is_some() => {}
+            Note::Loaded => self.clear_start(),
             Note::Playing { hwdec } => {
                 if let Some(since) = self.reloading_since.take() {
                     tracing::info!("vídeo de volta em {} ms", since.elapsed().as_millis());
@@ -581,17 +589,6 @@ impl Player {
                         hwdec,
                         ..self.status.clone()
                     });
-                }
-            }
-            Note::Failed(code) if self.released.is_some() => {
-                tracing::warn!(
-                    "a imagem do quadro não abriu: {}; voltando ao vídeo",
-                    mpv::Error::describe(code)
-                );
-                self.released = None;
-                let _ = std::fs::remove_file(frame_path());
-                if let Some(file) = self.status.path.as_deref().and_then(Path::to_str) {
-                    let _ = self.mpv.command(&["loadfile", file]);
                 }
             }
             Note::Failed(code) => {
@@ -643,9 +640,6 @@ impl Drop for Player {
         drop(self.signals.take());
         drop(self.surface.take());
         drop(self.watcher.take());
-        if self.released.is_some() {
-            let _ = std::fs::remove_file(frame_path());
-        }
     }
 }
 

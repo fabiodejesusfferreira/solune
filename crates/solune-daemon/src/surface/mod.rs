@@ -65,11 +65,28 @@ impl Kind {
 /// compositor fechou a camada, a conexão com o X caiu).
 pub type Ended = tokio::sync::mpsc::UnboundedSender<Result<(), String>>;
 
+/// Resposta de um pedido à thread da superfície.
+#[cfg(target_os = "linux")]
+type Reply = mpsc::Sender<Result<(), String>>;
+
+/// Pedidos do player à thread da superfície.
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+enum Control {
+    Stop,
+    /// Guarda o quadro atual na tela; os quadros do libmpv param de aparecer.
+    Freeze(Reply),
+    /// Desliga o render do libmpv (congelado e com o arquivo parado).
+    Release(Reply),
+    /// Liga o render do libmpv de novo.
+    Thaw(Reply),
+}
+
 /// Superfície rodando.
 #[derive(Debug)]
 pub struct Surface {
     #[cfg(target_os = "linux")]
-    stop: Option<smithay_client_toolkit::reexports::calloop::channel::Sender<()>>,
+    control: Option<smithay_client_toolkit::reexports::calloop::channel::Sender<Control>>,
     #[cfg(target_os = "linux")]
     join: Option<JoinHandle<()>>,
 }
@@ -77,6 +94,10 @@ pub struct Surface {
 /// Quanto esperar a superfície ficar pronta (EGL e render criados).
 #[cfg(target_os = "linux")]
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Quanto esperar a superfície congelar ou descongelar o render.
+#[cfg(target_os = "linux")]
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Avisa uma vez se a superfície ficou pronta ou falhou ao começar. As
 /// cópias dividem o mesmo aviso: só o primeiro `ok` ou `finish` vale.
@@ -120,7 +141,7 @@ impl Surface {
         {
             use smithay_client_toolkit::reexports::calloop::channel;
 
-            let (stop_tx, stop_rx) = channel::channel::<()>();
+            let (control_tx, control_rx) = channel::channel::<Control>();
             let (ready_tx, ready_rx) = mpsc::channel();
             let join = thread::Builder::new()
                 .name(format!("surface-{}", kind.name()))
@@ -131,16 +152,16 @@ impl Surface {
                     };
                     let result = match kind {
                         Kind::LayerShell => {
-                            layer_shell::run(player, hwdec_off, ready.clone(), stop_rx)
+                            layer_shell::run(player, hwdec_off, ready.clone(), control_rx)
                         }
-                        Kind::X11 => x11::run(player, hwdec_off, ready.clone(), stop_rx),
+                        Kind::X11 => x11::run(player, hwdec_off, ready.clone(), control_rx),
                     };
                     ready.finish(result.map_err(|e| e.to_string()), &ended);
                 })
                 .map_err(|e| format!("não foi possível criar a thread da superfície: {e}"))?;
 
             let mut surface = Self {
-                stop: Some(stop_tx),
+                control: Some(control_tx),
                 join: Some(join),
             };
             match ready_rx.recv_timeout(READY_TIMEOUT) {
@@ -165,13 +186,52 @@ impl Surface {
         }
     }
 
+    /// Guarda o quadro atual na tela; os quadros do libmpv param de
+    /// aparecer. Espera a superfície responder.
+    pub fn freeze(&self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        return self.request(Control::Freeze);
+        #[cfg(not(target_os = "linux"))]
+        Ok(())
+    }
+
+    /// Desliga o render do libmpv, que solta o que tinha na GPU. Só depois
+    /// de `freeze` e com o arquivo parado.
+    pub fn release(&self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        return self.request(Control::Release);
+        #[cfg(not(target_os = "linux"))]
+        Ok(())
+    }
+
+    /// Liga o render do libmpv de novo. O quadro guardado fica na tela até
+    /// o primeiro quadro do vídeo.
+    pub fn thaw(&self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        return self.request(Control::Thaw);
+        #[cfg(not(target_os = "linux"))]
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn request(&self, control: fn(Reply) -> Control) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel();
+        self.control
+            .as_ref()
+            .ok_or("a superfície já parou")?
+            .send(control(tx))
+            .map_err(|_| "a superfície já parou")?;
+        rx.recv_timeout(CONTROL_TIMEOUT)
+            .map_err(|_| "a superfície não respondeu".to_owned())?
+    }
+
     /// Para a superfície e espera a thread terminar. O papel de parede do
     /// sistema volta a aparecer.
     pub fn shutdown(&mut self) {
         #[cfg(target_os = "linux")]
         {
-            if let Some(stop) = self.stop.take() {
-                let _ = stop.send(());
+            if let Some(control) = self.control.take() {
+                let _ = control.send(Control::Stop);
             }
             if let Some(join) = self.join.take() {
                 let _ = join.join();

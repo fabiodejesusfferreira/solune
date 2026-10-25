@@ -18,8 +18,8 @@ use smithay_client_toolkit::reexports::calloop::{
 };
 use x11_dl::xlib::{self, Xlib};
 
-use super::Ready;
-use super::gl::{Gl, PingWaker};
+use super::gl::Gl;
+use super::{Control, Ready};
 use crate::mpv::Mpv;
 use crate::render::Interop;
 
@@ -201,6 +201,7 @@ impl App {
     fn handle_x(&mut self) {
         let (root, window) = (self.desktop.root, self.desktop.window);
         let mut root_size = None;
+        let mut resized = false;
         self.desktop.drain(|event| {
             if event.get_type() != xlib::ConfigureNotify {
                 return;
@@ -209,7 +210,9 @@ impl App {
             if configure.window == root {
                 root_size = Some((configure.width, configure.height));
             } else if configure.window == window {
-                self.size = (configure.width.max(1), configure.height.max(1));
+                let size = (configure.width.max(1), configure.height.max(1));
+                resized |= size != self.size;
+                self.size = size;
             }
         });
         if let Some((w, h)) = root_size
@@ -218,23 +221,57 @@ impl App {
             tracing::info!("resolução da tela mudou: {w}x{h}");
             self.desktop.resize(w, h);
         }
+        if resized && let Some(gl) = &self.gl {
+            let (width, height) = self.size;
+            if let Err(e) = gl.redraw_still(width, height) {
+                self.fail(e);
+            }
+        }
     }
 
     fn draw_if_needed(&mut self) {
-        let Some(gl) = &self.gl else { return };
+        let Some(gl) = &mut self.gl else { return };
         let (width, height) = self.size;
         if let Err(e) = gl.draw_if_needed(width, height) {
             self.fail(e);
         }
     }
+
+    fn control(&mut self, event: channel::Event<Control>) {
+        let (width, height) = self.size;
+        match event {
+            channel::Event::Msg(Control::Freeze(reply)) => {
+                let result = match &mut self.gl {
+                    Some(gl) => gl.freeze(width, height).map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Release(reply)) => {
+                let result = match &mut self.gl {
+                    Some(gl) => gl.release().map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Thaw(reply)) => {
+                let result = match &mut self.gl {
+                    Some(gl) => gl.thaw().map_err(|e| e.to_string()),
+                    None => Err("sem contexto OpenGL".into()),
+                };
+                let _ = reply.send(result);
+            }
+            channel::Event::Msg(Control::Stop) | channel::Event::Closed => self.stop = true,
+        }
+    }
 }
 
-/// Roda a superfície até `stop` receber um aviso ou ser fechado.
+/// Roda a superfície até `control` pedir para parar ou ser fechado.
 pub(super) fn run(
     player: Arc<Mpv>,
     hwdec_off: bool,
     ready: Ready,
-    stop: channel::Channel<()>,
+    control: channel::Channel<Control>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let desktop = Desktop::open()?;
     let mut attrs = MaybeUninit::<xlib::XWindowAttributes>::uninit();
@@ -268,8 +305,8 @@ pub(super) fn run(
         .map_err(|e| format!("falha ao registrar o wakeup: {e}"))?;
 
     handle
-        .insert_source(stop, |_, _, app: &mut App| app.stop = true)
-        .map_err(|e| format!("falha ao registrar o canal de parada: {e}"))?;
+        .insert_source(control, |event, _, app: &mut App| app.control(event))
+        .map_err(|e| format!("falha ao registrar o canal de controle: {e}"))?;
 
     // Como no layer-shell, com hwdec=no o display não vai para o libmpv:
     // assim ele não inicializa o VA-API na criação do contexto.
@@ -285,7 +322,7 @@ pub(super) fn run(
             desktop.window as usize as egl::NativeWindowType,
             interop,
             player,
-            PingWaker(ping),
+            ping,
         )
     }?;
     ready.ok();
