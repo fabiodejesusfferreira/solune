@@ -133,6 +133,9 @@ pub struct Player {
     pause_generation: u64,
     released: Option<Released>,
     seek: Option<Seek>,
+    /// Quando o vídeo começou a voltar da liberação; o log mostra quanto
+    /// levou até o primeiro quadro.
+    reloading_since: Option<Instant>,
     sampler: Sampler,
 }
 
@@ -199,6 +202,7 @@ impl Player {
             pause_generation: 0,
             released: None,
             seek: None,
+            reloading_since: None,
             sampler: Sampler::default(),
         })
     }
@@ -512,6 +516,7 @@ impl Player {
             ErrorCode::Internal
         })?;
         tracing::info!("decodificador de volta");
+        self.reloading_since = Some(Instant::now());
         Ok(())
     }
 
@@ -521,6 +526,7 @@ impl Player {
             let _ = std::fs::remove_file(frame_path());
         }
         self.seek = None;
+        self.reloading_since = None;
     }
 
     fn set_pause(&self, paused: bool) -> Result<(), ErrorCode> {
@@ -566,6 +572,9 @@ impl Player {
             // A imagem que fica no lugar do vídeo não muda a decodificação.
             Note::Playing { .. } if self.released.is_some() => {}
             Note::Playing { hwdec } => {
+                if let Some(since) = self.reloading_since.take() {
+                    tracing::info!("vídeo de volta em {} ms", since.elapsed().as_millis());
+                }
                 if self.status.state != PlayerState::Stopped && self.status.hwdec != hwdec {
                     tracing::info!("decodificação: {}", hwdec.as_deref().unwrap_or("?"));
                     self.set_status(Status {
