@@ -8,6 +8,7 @@
 use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -25,11 +26,15 @@ pub const DISCONNECTED: &str = "daemon://disconnected";
 const DAEMON_ENV: &str = "SOLUNE_DAEMON";
 /// Quanto esperar o daemon recém-iniciado abrir o socket.
 const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// Quanto esperar o daemon confirmar que vai encerrar.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A conexão com o daemon, aberta no primeiro comando.
 #[derive(Debug, Default)]
 pub struct Daemon {
     client: Mutex<Option<Client>>,
+    /// O app está saindo: nenhum comando inicia o daemon de novo.
+    quitting: AtomicBool,
 }
 
 /// Erro como a interface recebe. O código tem texto em `error.<código>`,
@@ -109,7 +114,26 @@ impl Daemon {
         }
     }
 
+    /// Encerra o daemon, se ele estiver rodando: o vídeo para e o papel de
+    /// parede do sistema volta. Usado pelo Sair da bandeja.
+    pub async fn shutdown(&self) {
+        self.quitting.store(true, Ordering::SeqCst);
+        self.client.lock().await.take();
+        let Ok(address) = Address::default_for_user() else {
+            return;
+        };
+        match tokio::time::timeout(SHUTDOWN_TIMEOUT, shutdown_daemon(&address)).await {
+            Ok(Ok(_)) => tracing::info!("daemon encerrado"),
+            Ok(Err(ClientError::NotRunning { .. })) => {}
+            Ok(Err(e)) => tracing::warn!("não consegui encerrar o daemon: {e}"),
+            Err(_) => tracing::warn!("o daemon não respondeu ao pedido para encerrar"),
+        }
+    }
+
     async fn client(&self, app: &AppHandle) -> Result<Client, ClientError> {
+        if self.quitting.load(Ordering::SeqCst) {
+            return Err(ClientError::Disconnected);
+        }
         let mut slot = self.client.lock().await;
         if let Some(client) = slot.as_ref() {
             return Ok(client.clone());
@@ -119,6 +143,14 @@ impl Daemon {
         *slot = Some(client.clone());
         Ok(client)
     }
+}
+
+/// Pede ao daemon que encerre, sem iniciar um se ele não estiver rodando.
+async fn shutdown_daemon(address: &Address) -> Result<Reply, ClientError> {
+    Client::connect(address)
+        .await?
+        .request(Command::Shutdown)
+        .await
 }
 
 /// Conecta ao daemon, iniciando o daemon se ele não estiver rodando.
@@ -222,6 +254,39 @@ mod tests {
         );
         assert_eq!(code(ClientError::Disconnected), "offline");
         assert_eq!(code(ClientError::Unexpected), "internal");
+    }
+
+    #[tokio::test]
+    async fn sair_pede_ao_daemon_para_encerrar() {
+        use solune_ipc::transport::Listener;
+        use solune_ipc::{Outcome, ServerMessage};
+
+        let dir = tempfile::tempdir().unwrap();
+        let address = Address::Path(dir.path().join("daemon.sock"));
+        let listener = Listener::bind(&address).unwrap();
+        let daemon = tokio::spawn(async move {
+            let (mut reader, mut writer) = listener.accept("x").await.unwrap().into_split();
+            let (id, command) = reader.next_request().await.unwrap().unwrap();
+            let outcome = Outcome::Ok(Reply::Done);
+            writer
+                .send(&ServerMessage::Response { id, outcome })
+                .await
+                .unwrap();
+            command
+        });
+
+        shutdown_daemon(&address).await.unwrap();
+        assert_eq!(daemon.await.unwrap(), Command::Shutdown);
+    }
+
+    #[tokio::test]
+    async fn sair_sem_daemon_nao_inicia_um() {
+        let dir = tempfile::tempdir().unwrap();
+        let address = Address::Path(dir.path().join("daemon.sock"));
+        assert!(matches!(
+            shutdown_daemon(&address).await,
+            Err(ClientError::NotRunning { .. })
+        ));
     }
 
     #[test]

@@ -1,9 +1,9 @@
 //! App desktop do Solune.
 //!
 //! A janela mostra a interface React; fechar a janela só a esconde, e o app
-//! continua na bandeja. Quem toca o papel de parede é o daemon, um processo
-//! à parte que o app inicia quando precisa e que segue rodando depois que o
-//! app sai.
+//! continua na bandeja com o vídeo tocando. Quem toca o papel de parede é o
+//! daemon, um processo à parte que o app inicia quando precisa. O Sair da
+//! bandeja encerra os dois.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

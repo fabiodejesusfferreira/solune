@@ -10,7 +10,7 @@ export function App() {
   return (
     <div className="app">
       <aside className="app__rail">
-        <Logo variant="symbol" on={scheme} size={28} />
+        <Logo variant="mark" on={scheme} size={40} />
       </aside>
       <Library />
     </div>

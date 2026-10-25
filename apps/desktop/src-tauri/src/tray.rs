@@ -1,9 +1,11 @@
 //! Ícone e menu da bandeja.
 
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
+use crate::daemon::Daemon;
 use crate::i18n::tr;
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
@@ -11,14 +13,24 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", tr("tray.quit"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
-    let mut tray = TrayIconBuilder::with_id("main")
+    // Na bandeja o ícone fica com 16 a 24 px: vai o símbolo, sem a órbita.
+    let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
         .tooltip(tr("app.name"))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
-            // Sai só o app: o daemon segue com o papel de parede.
-            "quit" => app.exit(0),
+            // Sair encerra tudo: o daemon para o vídeo e devolve o papel de
+            // parede do sistema. Fechar a janela, não; o app fica na bandeja.
+            "quit" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    app.state::<Daemon>().shutdown().await;
+                    app.exit(0);
+                });
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -30,11 +42,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             {
                 show_main(tray.app_handle());
             }
-        });
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
-    tray.build(app)?;
+        })
+        .build(app)?;
     Ok(())
 }
 

@@ -41,7 +41,7 @@ pnpm bootstrap   # instala as dependências JS e gera os tokens
 pnpm dev         # compila o daemon e abre o app com recarga da interface
 ```
 
-Ao abrir, o app procura o daemon e, se ele não estiver rodando, inicia o `solune-daemon` que está na mesma pasta do executável (`SOLUNE_DAEMON` aponta outro). Fechar a janela deixa o app na bandeja. Sair pela bandeja fecha só o app: o daemon continua com o papel de parede.
+Ao abrir, o app procura o daemon e, se ele não estiver rodando, inicia o `solune-daemon` que está na mesma pasta do executável (`SOLUNE_DAEMON` aponta outro). Fechar a janela deixa o app na bandeja, com o vídeo tocando. Sair pela bandeja encerra o app e o daemon, e o papel de parede do sistema volta.
 
 Outros scripts:
 
