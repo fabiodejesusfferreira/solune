@@ -1,0 +1,16 @@
+[package]
+name = "solune-player-spike"
+version = "0.0.0"
+description = "Spike do player: libmpv tocando um vídeo como papel de parede"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "solune-player-spike"
+path = "src/main.rs"
+
+[lints]
+workspace = true

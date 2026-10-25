@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Formatação
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # O rustup do runner instala a versão de rust-toolchain.toml.
+      - run: cargo fmt --all --check
+
+  linux:
+    name: Linux (clippy, build, fumaça)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmpv-dev ffmpeg
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+      - name: Teste de fumaça do spike (sem tela)
+        run: |
+          ffmpeg -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 3 \
+            -c:v libx264 -pix_fmt yuv420p "$RUNNER_TEMP/teste.mp4"
+          cargo spike "$RUNNER_TEMP/teste.mp4" --seconds 3 --vo null
+
+  windows:
+    name: Windows (clippy)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      # check e clippy não linkam, então ainda não precisam do libmpv.
+      # O build completo no Windows entra quando o CI baixar um libmpv LGPL.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  deny:
+    name: Licenças e advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
