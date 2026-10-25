@@ -18,7 +18,7 @@ O layout completo (daemon, protocolo de IPC, app Tauri, tokens, i18n) entra depo
 
 - Rust: a versão fixada em `rust-toolchain.toml` (o rustup instala sozinho).
 - libmpv com API de cliente 2.x, linkado dinamicamente.
-  - Linux: o pacote de desenvolvimento da distribuição (`libmpv-dev` no Debian e Ubuntu, `mpv-devel` ou equivalente nas outras).
+  - Linux: o `libmpv.so` da distribuição (vem com `libmpv-dev` no Debian e Ubuntu). Sem o pacote -dev, crie um link `libmpv.so` para o `libmpv.so.2` numa pasta e aponte `MPV_LIB_DIR` para ela.
   - Windows: um build LGPL do libmpv; aponte `MPV_LIB_DIR` para a pasta da biblioteca de importação e deixe a DLL no `PATH`. Ainda não testado.
 
 ## Rodar o spike
