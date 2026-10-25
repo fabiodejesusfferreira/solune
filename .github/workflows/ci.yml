@@ -33,15 +33,12 @@ jobs:
       - uses: actions/checkout@v5
       # Só o libmpv de runtime: o -dev puxa centenas de pacotes e o espelho
       # do apt deixou o job parado por mais de 9 minutos. Os bindings do
-      # spike não usam cabeçalhos, basta um libmpv.so para o link.
+      # spike não usam cabeçalhos, e o build linka direto com o libmpv.so.2.
       - name: Dependências de sistema
         run: |
           sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libmpv2 ffmpeg
-          mkdir -p "$RUNNER_TEMP/mpv"
-          ln -s "$(ls /usr/lib/x86_64-linux-gnu/libmpv.so.2)" "$RUNNER_TEMP/mpv/libmpv.so"
-          echo "MPV_LIB_DIR=$RUNNER_TEMP/mpv" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
