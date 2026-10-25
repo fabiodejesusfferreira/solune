@@ -28,17 +28,20 @@ jobs:
   linux:
     name: Linux (clippy, build, testes)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
-      # Só o libmpv de runtime: o -dev puxa centenas de pacotes e o espelho
-      # do apt deixou o job parado por mais de 9 minutos. Os bindings do
-      # daemon não usam cabeçalhos, e o build linka direto com o libmpv.so.2.
+      # Do libmpv, só o runtime: o libmpv-dev puxa centenas de pacotes e o
+      # espelho do apt já deixou o job parado por mais de 9 minutos. Os
+      # bindings do daemon não usam cabeçalhos. O resto é o que o Tauri pede
+      # no Linux (webview, bandeja, ícones).
       - name: Dependências de sistema
         run: |
           sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libmpv2 ffmpeg
+          sudo apt-get install -y --no-install-recommends libmpv2 ffmpeg \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
@@ -73,7 +76,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # check e clippy não linkam, então ainda não precisam do libmpv.
+      # check e clippy não linkam, então ainda não precisam do libmpv. O
+      # Tauri usa o WebView2, que já vem no runner.
       # O build completo no Windows entra quando o CI baixar um libmpv LGPL.
       - run: cargo clippy --workspace --all-targets -- -D warnings
 

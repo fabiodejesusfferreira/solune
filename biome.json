@@ -12,7 +12,8 @@
       "!**/dist",
       "!**/target",
       "!**/src-tauri/gen",
-      "!**/*.gen.ts"
+      "!**/*.gen.ts",
+      "!crates/*/fixtures"
     ]
   },
   "formatter": {

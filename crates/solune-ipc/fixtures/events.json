@@ -1,0 +1,15 @@
+[
+  {
+    "kind": "status_changed",
+    "status": {
+      "hwdec": "vaapi",
+      "path": "/home/ana/Vídeos/praia.mp4",
+      "pause_reason": "battery",
+      "state": "paused"
+    }
+  },
+  {
+    "error": "unsupported_format",
+    "kind": "playback_failed"
+  }
+]

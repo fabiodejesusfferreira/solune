@@ -1,6 +1,7 @@
 # cargo-deny: licenças, advisories e origem das dependências.
-# O projeto é MIT. Licenças copyleft (GPL, LGPL) ficam de fora do grafo de
-# crates: o libmpv entra por link dinâmico, nunca como crate.
+# O projeto é MIT. Licenças copyleft fortes (GPL, LGPL) ficam de fora do
+# grafo de crates: o libmpv entra por link dinâmico, nunca como crate. A
+# MPL-2.0 vale por arquivo e entra com o Tauri (cssparser e selectors).
 
 [graph]
 all-features = true
@@ -8,6 +9,16 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Sem manutenção, mas sem falha conhecida, e chegam por dependências do Tauri
+# sem versão nova que as troque. Revisar ao atualizar o Tauri.
+ignore = [
+  # proc-macro-error, pelo gtk 0.18 da bandeja e da webview no Linux.
+  { id = "RUSTSEC-2024-0370", reason = "vem do gtk 0.18, usado pelo Tauri no Linux" },
+  # zvariant e zbus_names viraram parte do zbus 6; o single-instance usa o zbus 5.
+  { id = "RUSTSEC-2026-0370", reason = "zbus 5 do tauri-plugin-single-instance" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus 5 do tauri-plugin-single-instance" },
+  { id = "RUSTSEC-2026-0372", reason = "zbus 5 do tauri-plugin-single-instance" },
+]
 
 [licenses]
 version = 2
@@ -20,6 +31,7 @@ allow = [
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
+  "MPL-2.0",
   "Zlib",
   "Unicode-3.0",
 ]

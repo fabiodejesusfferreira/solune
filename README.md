@@ -2,22 +2,23 @@
 
 Solune é um app de desktop de código aberto que põe vídeos e imagens como papel de parede, com carrossel e troca automática entre os temas claro e escuro. O carro-chefe é o vídeo, tocando com baixo uso de CPU e GPU.
 
-O projeto está no começo: o daemon já toca um vídeo como papel de parede no Linux e o resto do scaffold está montado, ainda sem a interface. Contexto, decisões e pesquisa estão em [`docs/Solune.md`](docs/Solune.md).
+O projeto está no começo: o daemon já toca um vídeo como papel de parede no Linux, e o app tem a primeira tela, a biblioteca, falando com o daemon. Contexto, decisões e pesquisa estão em [`docs/Solune.md`](docs/Solune.md).
 
 ## Estrutura
 
 | Caminho | O que é |
 | --- | --- |
+| `apps/desktop/` | App Tauri: interface React (`src/`) e lado nativo com bandeja e ponte com o daemon (`src-tauri/`) |
 | `crates/solune-ipc/` | Protocolo entre o app e o daemon: mensagens, framing e socket local |
 | `crates/solune-core/` | Lógica sem GPU: política de pausa e agenda de tema claro e escuro |
 | `crates/solune-daemon/` | Daemon: libmpv, superfícies de papel de parede e servidor do socket |
 | `packages/tokens/` | Tokens do design system (`tokens.json`), que geram CSS e TS |
 | `packages/ui/` | Componentes React do design system |
 | `packages/i18n/` | Catálogo pt-BR e checagens de tradução |
-| `scripts/` | Checagens do repositório, como a de cor literal |
+| `scripts/` | Checagens do repositório e scripts de build |
 | `docs/` | Contexto do projeto, memória, medições e decisões (`docs/decisions/`) |
 
-O app Tauri (`apps/desktop/`) é o próximo passo. As escolhas do scaffold estão em [`docs/decisions/0003-escolhas-do-scaffold.md`](docs/decisions/0003-escolhas-do-scaffold.md).
+As escolhas do scaffold estão em [`docs/decisions/0003-escolhas-do-scaffold.md`](docs/decisions/0003-escolhas-do-scaffold.md).
 
 ## Requisitos
 
@@ -27,7 +28,33 @@ O app Tauri (`apps/desktop/`) é o próximo passo. As escolhas do scaffold estã
   - Linux: o pacote de runtime basta (`sudo apt install libmpv2` no Debian, Ubuntu e Mint). O build linka direto com o `libmpv.so.2`, sem o -dev.
   - Windows: um build LGPL do libmpv; aponte `MPV_LIB_DIR` para a pasta da biblioteca de importação e deixe a DLL no `PATH`. Ainda não testado.
 
-## Rodar o daemon
+No Linux, o app Tauri também precisa dos pacotes da webview e da bandeja. No Debian, Ubuntu e Mint:
+
+```sh
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+```
+
+## Rodar o app
+
+```sh
+pnpm bootstrap   # instala as dependências JS e gera os tokens
+pnpm dev         # compila o daemon e abre o app com recarga da interface
+```
+
+Ao abrir, o app procura o daemon e, se ele não estiver rodando, inicia o `solune-daemon` que está na mesma pasta do executável (`SOLUNE_DAEMON` aponta outro). Fechar a janela deixa o app na bandeja. Sair pela bandeja fecha só o app: o daemon continua com o papel de parede.
+
+Outros scripts:
+
+| Script | O que faz |
+| --- | --- |
+| `pnpm dev:ui` | Só a interface no navegador, sem o Tauri (os comandos do daemon falham) |
+| `pnpm dev:daemon` | Só o daemon, o mesmo que `cargo daemon` |
+| `pnpm build` | Daemon em release, app e instalador (`.deb` no Linux, NSIS no Windows), em `target/release/bundle` |
+| `pnpm ipc:fixtures` | Regrava os exemplos do protocolo depois de uma mudança de propósito |
+
+A biblioteca ainda é provisória: guarda só o caminho dos vídeos no armazenamento da webview, sem miniatura.
+
+## Rodar o daemon sozinho
 
 Num terminal, o daemon:
 

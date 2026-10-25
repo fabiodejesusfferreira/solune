@@ -322,6 +322,12 @@ impl Client {
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
     }
+
+    /// Termina quando a conexão com o daemon cai. Depois disso, todo pedido
+    /// falha com `Disconnected`.
+    pub async fn closed(&self) {
+        self.requests.closed().await;
+    }
 }
 
 async fn run_client(
@@ -441,6 +447,27 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o700);
+    }
+
+    #[tokio::test]
+    async fn closed_termina_quando_o_daemon_sai() {
+        let dir = tempfile::tempdir().unwrap();
+        let address = temp_address(&dir);
+        let listener = Listener::bind(&address).unwrap();
+        let daemon = tokio::spawn(async move {
+            let connection = listener.accept("x").await.unwrap();
+            drop(connection);
+        });
+
+        let client = Client::connect(&address).await.unwrap();
+        daemon.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), client.closed())
+            .await
+            .expect("closed termina");
+        assert!(matches!(
+            client.request(Command::Status).await,
+            Err(ClientError::Disconnected)
+        ));
     }
 
     #[tokio::test]

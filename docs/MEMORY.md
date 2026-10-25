@@ -98,6 +98,10 @@ Fase 2 (scaffold completo) em andamento, tudo na `main`. Decisões do scaffold n
 - `packages/ui`: Button, Toggle, Chip, WallpaperCard e Logo (os quatro SVGs em `assets/`), com Vitest.
 - `crates/solune-ipc`: protocolo versão 1, JSON por linha, `hello`/`welcome`, pedidos com `id`, eventos sem `id`. Códigos de erro e de pausa batem com as chaves `error.*` e `pause_reason.*` do catálogo. Socket em `$XDG_RUNTIME_DIR/solune/daemon.sock` (pasta 0700) ou named pipe `solune-daemon-<usuário>` no Windows; `SOLUNE_SOCKET` troca.
 - `crates/solune-core`: política de pausa (ordem: usuário, tela bloqueada, tela cheia, bateria; liberar o decodificador após 5 min) e agenda de tema. O daemon ainda não usa a política: faltam os sinais do sistema.
+- `apps/desktop`: app Tauri 2 (crate `solune-desktop`). Interface React com a tela Biblioteca (importar pelo diálogo ou arrastando, aplicar, pausar, retomar, parar, status por evento). Lado nativo com bandeja (textos do catálogo via `tr()`), uma instância só, fechar a janela esconde. Os comandos `daemon_*` viram pedidos ao socket; se o daemon não está rodando, o app inicia o `solune-daemon` da mesma pasta (ou `SOLUNE_DAEMON`), desligado do app, e ele continua depois que o app sai. Erros chegam à interface como `{code}`: os de `error.*` mais `offline` e `incompatible` (`daemon.*`). Biblioteca provisória no localStorage, só com caminhos, sem miniatura. Ícone do app provisório (símbolo sobre fundo `primary`), em `src-tauri/icons/app-icon.svg`. Rodou em Xvfb em 25 out. 2026: iniciou o daemon, mostrou play e pause por evento e reiniciou o daemon depois de um `quit`.
+- Tipos TS do protocolo escritos à mão (`apps/desktop/src/daemon/protocol.ts`) com teste de contrato contra `crates/solune-ipc/fixtures`; o tauri-specta ficou de fora porque não tem versão estável para o Tauri 2 (ADR 0003).
+- `pnpm build` compila o daemon em release, copia para `src-tauri/binaries/solune-daemon-<alvo>` e gera o instalador com `tauri.bundle.json` por cima do `tauri.conf.json` (o sidecar só entra no build de instalador, para o `cargo build` comum não exigir o binário). O `.deb` depende do `libmpv2`.
+- cargo-deny: MPL-2.0 liberada (cssparser e selectors do Tauri); quatro avisos de crate sem manutenção ignorados, todos vindos do Tauri (gtk 0.18 e zbus 5). Revisar ao atualizar o Tauri.
 - `crates/solune-daemon`: o código do spike (removido do repositório) virou o daemon. Ator único no tokio; superfície numa thread com calloop; thread de eventos do libmpv. `cargo daemon` roda; `cargo daemon play|pause|resume|stop|status|quit` conversa com ele. Teste de ponta a ponta sem tela no CI (`--headless`, `vo=null`).
 
 ## Achados do player
@@ -106,14 +110,15 @@ Fase 2 (scaffold completo) em andamento, tudo na `main`. Decisões do scaffold n
 - A configuração EGL precisa ser RGB de 8 bits sem alfa.
 - Com hwdec=no o display não vai para o libmpv, senão o VA-API derruba o processo sem GPU.
 - O libmpv com `vo=libmpv` precisa do contexto de render antes do `loadfile`; o daemon cria a superfície primeiro.
-- X11 validado em 25 out. 2026 no notebook do Fábio (Samsung 550XDA, Linux Mint com Cinnamon), vídeo H.264 1080p: aparece como papel de parede, ícones do Nemo visíveis e clicáveis por cima, VA-API em uso. Isso foi com o spike; o daemon ainda não rodou na máquina dele.
-- Medição do X11 no notebook do Fábio (i3-1115G4, UHD Tiger Lake, 1080p a 100 Hz): com vaapi, 3,95% de um núcleo e 146 MiB de RSS; sem hwdec, 33,32% e 204 MiB. Motor de render da GPU a ~10% nos dois. Detalhes em `docs/medicoes/2026-10-25-x11-mint.md`.
+- X11 validado em 25 out. 2026 no notebook do Fábio (Samsung 550XDA, Linux Mint com Cinnamon), vídeo H.264 1080p: aparece como papel de parede, ícones do Nemo visíveis e clicáveis por cima, VA-API em uso. Primeiro com o spike; o daemon (commit da04750) passou no mesmo teste no mesmo dia: play, pause, resume, stop, play de novo e quit funcionaram, o socket some no quit, os ícones ficam por cima e o stop devolve o papel de parede do sistema.
+- Medição do X11 no notebook do Fábio (i3-1115G4, UHD Tiger Lake, 1080p a 100 Hz): com vaapi, 3,95% de um núcleo e 146 MiB de RSS; sem hwdec, 33,32% e 204 MiB. Motor de render da GPU a ~10% nos dois. Com o daemon (vaapi, outros apps abertos): 4,87% de um núcleo em 30 s e 158 MiB de RSS. Detalhes em `docs/medicoes/2026-10-25-x11-mint.md`.
 - Quadros pretos no llvmpipe: o mpv às vezes desenha preto ou meia tela durante uma execução inteira, também no mpv de linha de comando com `--vo=gpu`. É do renderizador por software. O cache de shaders não é a causa.
 - No wlroots, o `swaybg` (e provavelmente o `hyprpaper`) fica por cima da nossa camada de fundo. Visto num Sway sem tela; falta decidir como tratar (pedir para fechar, ou outra camada).
 
 ## Próximos passos
 
-- App Tauri em `apps/desktop` com a primeira tela falando com o daemon, e scripts `pnpm dev`, `dev:daemon`, `dev:ui`, `build`.
+- Rodar o app (`pnpm dev`) e o `.deb` na máquina do Fábio.
+- Biblioteca de verdade: banco, miniaturas e metadados (duração, resolução) no lado nativo.
 - WorkerW no Windows 11: o Fábio pediu para deixar o Windows para depois (25 out. 2026). Versão do Windows dele ainda não confirmada.
 - Sinais do sistema para a política de pausa (tela cheia, bateria, tela bloqueada).
 - Máquina do Fábio: o código é escrito no repositório da nuvem (CI e push na main); o que precisa rodar no hardware dele, como medições, roda numa sessão no computador dele. O clone local fica em `~/Documentos/code/solune`.

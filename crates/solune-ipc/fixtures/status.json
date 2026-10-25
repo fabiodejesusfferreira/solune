@@ -1,0 +1,20 @@
+{
+  "paused": {
+    "hwdec": "vaapi",
+    "path": "/home/ana/Vídeos/praia.mp4",
+    "pause_reason": "battery",
+    "state": "paused"
+  },
+  "playing": {
+    "hwdec": "vaapi",
+    "path": "/home/ana/Vídeos/praia.mp4",
+    "pause_reason": null,
+    "state": "playing"
+  },
+  "stopped": {
+    "hwdec": null,
+    "path": null,
+    "pause_reason": null,
+    "state": "stopped"
+  }
+}

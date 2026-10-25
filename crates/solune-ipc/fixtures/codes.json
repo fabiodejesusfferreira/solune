@@ -1,0 +1,15 @@
+{
+  "error": [
+    "file_not_found",
+    "unsupported_format",
+    "surface_unavailable",
+    "incompatible",
+    "internal"
+  ],
+  "pause_reason": [
+    "user",
+    "fullscreen",
+    "battery",
+    "locked"
+  ]
+}

@@ -4,10 +4,12 @@
   },
   "library": {
     "title": "Biblioteca",
-    "empty": "Arraste um vídeo ou imagem para começar",
+    "empty": "Arraste um vídeo para começar",
     "import": "Importar vídeo",
     "count_one": "{{count}} wallpaper",
-    "count_other": "{{count}} wallpapers"
+    "count_other": "{{count}} wallpapers",
+    "drop": "Solte para adicionar à biblioteca",
+    "filter": "Vídeos"
   },
   "player": {
     "apply": "Definir como papel de parede",
@@ -17,7 +19,8 @@
       "playing": "Tocando",
       "paused": "Pausado",
       "stopped": "Parado"
-    }
+    },
+    "stop": "Parar"
   },
   "daemon": {
     "connecting": "Conectando ao serviço do Solune",

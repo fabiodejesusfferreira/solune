@@ -6,6 +6,7 @@
   "description": "Componentes React do design system do Solune",
   "exports": {
     ".": "./src/index.ts",
+    "./fonts": "./src/fonts.ts",
     "./styles.css": "./src/styles.css",
     "./assets/*": "./assets/*"
   },

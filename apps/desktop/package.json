@@ -1,0 +1,40 @@
+{
+  "name": "@solune/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "App desktop do Solune: interface React dentro do Tauri",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:ui": "vite",
+    "build": "tauri build --config src-tauri/tauri.bundle.json",
+    "build:ui": "vite build",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@solune/i18n": "workspace:*",
+    "@solune/tokens": "workspace:*",
+    "@solune/ui": "workspace:*",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.3",
+    "lucide-react": "1.61.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-i18next": "17.1.9",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "30.1.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
