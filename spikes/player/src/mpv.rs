@@ -132,6 +132,7 @@ impl Mpv {
         Ok(mpv)
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn raw(&self) -> *mut MpvHandle {
         self.handle
     }
