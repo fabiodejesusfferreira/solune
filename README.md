@@ -31,7 +31,7 @@ cargo spike caminho/do/video.mp4 [--surface janela|layer-shell|x11] [--seconds N
 | --- | --- | --- |
 | `janela` (padrão) | Janela do próprio mpv | Referência; `--vo null` toca sem tela (teste de fumaça) |
 | `layer-shell` | Camada de fundo do Wayland: KDE Plasma 6 e wlroots (Sway, Hyprland) | Testado só num Sway 1.9 sem tela, com renderização por software |
-| `x11` | Janela do tipo desktop em sessões X11, como o Cinnamon do Linux Mint | Testado só num Xvfb sem gerenciador de janelas, com renderização por software |
+| `x11` | Janela do tipo desktop em sessões X11, como o Cinnamon do Linux Mint | Testado no Linux Mint com Cinnamon: ícones da área de trabalho por cima, VA-API em uso |
 
 O spike imprime o decodificador em uso (`hwdec`), a saída de vídeo e o formato do arquivo. `--hwdec` repassa o modo ao mpv (padrão `auto-safe`; `no` desliga).
 
