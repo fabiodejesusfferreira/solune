@@ -27,4 +27,4 @@ O passo 3 do plano (`docs/Solune.md`) é a política de desempenho: pausar quand
 - Protocolo na versão 2: `get_policy`, `set_settings`, `usage` e o evento `policy_changed`. Um app de uma versão e um daemon da outra recusam a conexão no `hello`.
 - Windows: os três sinais ficam `null` até a fase do WorkerW.
 - O KDE Plasma não pausa em tela cheia por enquanto. Alternativa futura: o D-Bus do KWin.
-- A memória de vídeo liberada e o tempo para retomar ainda precisam de medição em hardware real.
+- No notebook do Fábio, liberar baixou a RAM em cerca de 11 MiB e a memória de vídeo de 104 MiB (tocando) para 92 MiB, e o vídeo voltou em 17 a 43 ms, sem quadro preto (`docs/medicoes/2026-10-25-fase3-mint.md`). O que sobra na memória de vídeo não foi detalhado.
