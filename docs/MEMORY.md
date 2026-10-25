@@ -12,7 +12,7 @@ Fatos estáveis do projeto, para retomar o trabalho sem perguntar de novo. Fonte
 
 - Repositório: https://github.com/fabiodejesusfferreira/solune.
 - Licença MIT. O libmpv entra só por link dinâmico e em build LGPL; bindings escritos à mão a partir dos cabeçalhos ISC do mpv, sem o crate `libmpv2` (LGPL). Ver `docs/decisions/0002-licenca-mit-e-libmpv.md`.
-- Setup em duas etapas: fase 0 (setup mínimo, só o spike no workspace) e scaffold completo depois do spike. Plano completo no doc [Solune: plano do setup inicial do app](https://claude.ai/artifact/W5c5qydHRWsGpXjXNP24Cf).
+- Setup em duas etapas: fase 0 (setup mínimo, só o spike no workspace) e scaffold completo depois do spike. A fase 0 e o spike terminaram; o scaffold está em andamento. Plano completo no doc [Solune: plano do setup inicial do app](https://claude.ai/artifact/W5c5qydHRWsGpXjXNP24Cf).
 
 ## Arquitetura
 
@@ -89,17 +89,33 @@ Sete telas aprovadas no canvas [Solune UI e UX](https://claude.ai/artifact/T65bC
 - Lua dos SVGs escuros em #e4f1ef (tom azulado), diferente do `ink` escuro (#ecedef).
 - Telas de configurações gerais e de importação com progresso de conversão.
 
-## Próximo passo
+## Estado do código
 
-Spike do player em `spikes/player/`:
+Fase 2 (scaffold completo) em andamento, tudo na `main`. Decisões do scaffold no ADR 0003: bandeja no app Tauri, tokens com fonte de verdade no repositório, Biome, i18next.
 
-- Etapa 1, janela do mpv: pronta; teste de fumaça sem tela no CI.
-- Etapa 2, layer-shell (KDE 6 e wlroots): pronta e testada só num Sway 1.9 sem tela, com renderização por software. Achados: a thread de render não pode chamar a API comum do libmpv (os eventos ficam noutra thread, `events.rs`); a configuração EGL precisa ser RGB de 8 bits sem alfa; com hwdec=no o display não vai para o libmpv, senão o VA-API derruba o processo sem GPU.
-- Etapa 3, X11 (janela `_NET_WM_WINDOW_TYPE_DESKTOP`): validada em 25 out. 2026 no notebook do Fábio (Samsung 550XDA, Linux Mint com Cinnamon, X11), com um vídeo H.264 1080p: o vídeo aparece como papel de parede, os ícones do Nemo ficam visíveis e clicáveis por cima, e a decodificação por hardware entra (`hwdec-current` = vaapi). EGL e render ficam em `gl.rs`, comuns ao layer-shell e ao X11.
-- Quadros pretos no llvmpipe: o mpv às vezes desenha preto ou meia tela durante uma execução inteira, nas duas superfícies e também no mpv de linha de comando com `--vo=gpu` (5 de 6 execuções aqui), enquanto `--vo=x11` sem GL sai certo. É do mpv no renderizador por software, não do spike. A conclusão anterior, de que o cache de shaders causava isso, estava errada; a opção `gpu-shader-cache=no` saiu.
-- Medição do X11 no notebook do Fábio (i3-1115G4, UHD Tiger Lake, 1080p a 100 Hz), vídeo H.264 1080p30: com vaapi, 3,95% de um núcleo e 146 MiB de RSS; sem hwdec, 33,32% e 204 MiB. Motor de render da GPU a ~10% nos dois. Detalhes e ressalvas em `docs/medicoes/2026-10-25-x11-mint.md`.
-- Etapa 4, WorkerW no Windows 11: o Fábio tem uma máquina com Windows 11 (versão ainda não confirmada).
-- Depois: medir CPU e GPU no Windows e fazer o scaffold completo.
+- `packages/tokens`: `tokens.json` (DTCG) gera `dist/tokens.css` e `dist/tokens.ts` pelo Style Dictionary 5; checagem de contraste no `pnpm test`. Acrescentei o token `on-scrim` (#ffffff nos dois temas) para o texto do selo do WallpaperCard, que no design system era `#ffffff` solto; falta levar ao artefato do design system. As famílias de fonte começam pelo nome que o Fontsource registra ("Outfit Variable" etc.).
+- `packages/i18n`: catálogo `locales/pt-BR.json`; `pnpm --filter @solune/i18n check` acusa chave sem texto, chave sem uso, exclamação e palavras proibidas; `pseudo` gera o pseudo-locale com 30% de folga.
+- `packages/ui`: Button, Toggle, Chip, WallpaperCard e Logo (os quatro SVGs em `assets/`), com Vitest.
+- `crates/solune-ipc`: protocolo versão 1, JSON por linha, `hello`/`welcome`, pedidos com `id`, eventos sem `id`. Códigos de erro e de pausa batem com as chaves `error.*` e `pause_reason.*` do catálogo. Socket em `$XDG_RUNTIME_DIR/solune/daemon.sock` (pasta 0700) ou named pipe `solune-daemon-<usuário>` no Windows; `SOLUNE_SOCKET` troca.
+- `crates/solune-core`: política de pausa (ordem: usuário, tela bloqueada, tela cheia, bateria; liberar o decodificador após 5 min) e agenda de tema. O daemon ainda não usa a política: faltam os sinais do sistema.
+- `crates/solune-daemon`: o código do spike (removido do repositório) virou o daemon. Ator único no tokio; superfície numa thread com calloop; thread de eventos do libmpv. `cargo daemon` roda; `cargo daemon play|pause|resume|stop|status|quit` conversa com ele. Teste de ponta a ponta sem tela no CI (`--headless`, `vo=null`).
+
+## Achados do player
+
+- A thread de render não pode chamar a API comum do libmpv; eventos e comandos ficam noutras threads.
+- A configuração EGL precisa ser RGB de 8 bits sem alfa.
+- Com hwdec=no o display não vai para o libmpv, senão o VA-API derruba o processo sem GPU.
+- O libmpv com `vo=libmpv` precisa do contexto de render antes do `loadfile`; o daemon cria a superfície primeiro.
+- X11 validado em 25 out. 2026 no notebook do Fábio (Samsung 550XDA, Linux Mint com Cinnamon), vídeo H.264 1080p: aparece como papel de parede, ícones do Nemo visíveis e clicáveis por cima, VA-API em uso. Isso foi com o spike; o daemon ainda não rodou na máquina dele.
+- Medição do X11 no notebook do Fábio (i3-1115G4, UHD Tiger Lake, 1080p a 100 Hz): com vaapi, 3,95% de um núcleo e 146 MiB de RSS; sem hwdec, 33,32% e 204 MiB. Motor de render da GPU a ~10% nos dois. Detalhes em `docs/medicoes/2026-10-25-x11-mint.md`.
+- Quadros pretos no llvmpipe: o mpv às vezes desenha preto ou meia tela durante uma execução inteira, também no mpv de linha de comando com `--vo=gpu`. É do renderizador por software. O cache de shaders não é a causa.
+- No wlroots, o `swaybg` (e provavelmente o `hyprpaper`) fica por cima da nossa camada de fundo. Visto num Sway sem tela; falta decidir como tratar (pedir para fechar, ou outra camada).
+
+## Próximos passos
+
+- App Tauri em `apps/desktop` com a primeira tela falando com o daemon, e scripts `pnpm dev`, `dev:daemon`, `dev:ui`, `build`.
+- WorkerW no Windows 11: o Fábio pediu para deixar o Windows para depois (25 out. 2026). Versão do Windows dele ainda não confirmada.
+- Sinais do sistema para a política de pausa (tela cheia, bateria, tela bloqueada).
 - Máquina do Fábio: o código é escrito no repositório da nuvem (CI e push na main); o que precisa rodar no hardware dele, como medições, roda numa sessão no computador dele. O clone local fica em `~/Documentos/code/solune`.
 
 ## Regras de trabalho

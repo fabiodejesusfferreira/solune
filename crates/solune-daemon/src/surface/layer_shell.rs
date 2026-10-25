@@ -6,7 +6,6 @@
 
 use std::ffi::c_void;
 use std::sync::Arc;
-use std::time::Instant;
 
 use khronos_egl as egl;
 use smithay_client_toolkit::{
@@ -37,8 +36,8 @@ use smithay_client_toolkit::{
 };
 use wayland_egl::WlEglSurface;
 
-use crate::events::Events;
-use crate::gl::{Gl, PingWaker};
+use super::Ready;
+use super::gl::{Gl, PingWaker};
 use crate::mpv::Mpv;
 use crate::render::Interop;
 
@@ -57,18 +56,19 @@ struct App {
     player: Arc<Mpv>,
     hwdec_off: bool,
     waker: Option<Ping>,
-    events: Events,
+    ready: Ready,
     target: Option<Target>,
     size: (i32, i32),
     error: Option<Box<dyn std::error::Error>>,
     stop: bool,
 }
 
-pub fn run(
-    player: Mpv,
-    video: &str,
-    hwdec: &str,
-    deadline: Option<Instant>,
+/// Roda a superfície até `stop` receber um aviso ou ser fechado.
+pub(super) fn run(
+    player: Arc<Mpv>,
+    hwdec_off: bool,
+    ready: Ready,
+    stop: channel::Channel<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::connect_to_env()
         .map_err(|e| format!("sem conexão com o compositor Wayland: {e}"))?;
@@ -99,14 +99,9 @@ pub fn run(
         .insert_source(ping_source, |_, _, app: &mut App| app.draw_if_needed())
         .map_err(|e| format!("falha ao registrar o wakeup: {e}"))?;
 
-    let player = Arc::new(player);
-    let (events, outcome) = Events::spawn(Arc::clone(&player), video, deadline);
     handle
-        .insert_source(outcome, |event, _, app: &mut App| match event {
-            channel::Event::Msg(Err(e)) => app.fail(e.into()),
-            channel::Event::Msg(Ok(())) | channel::Event::Closed => app.stop = true,
-        })
-        .map_err(|e| format!("falha ao registrar o canal de eventos: {e}"))?;
+        .insert_source(stop, |_, _, app: &mut App| app.stop = true)
+        .map_err(|e| format!("falha ao registrar o canal de parada: {e}"))?;
 
     let mut app = App {
         registry_state: RegistryState::new(&globals),
@@ -114,9 +109,9 @@ pub fn run(
         conn,
         layer,
         player,
-        hwdec_off: hwdec == "no",
+        hwdec_off,
         waker: Some(ping),
-        events,
+        ready,
         target: None,
         size: (0, 0),
         error: None,
@@ -133,7 +128,6 @@ pub fn run(
     };
     // O contexto de render e o EGL saem antes do libmpv e da superfície.
     drop(app.target.take());
-    app.events.shutdown();
     match app.error.take() {
         Some(e) => Err(e),
         None => result,
@@ -175,7 +169,7 @@ impl App {
             )
         }?;
         self.target = Some(Target { gl, window });
-        self.events.ready();
+        self.ready.ok();
         Ok(())
     }
 
@@ -190,7 +184,7 @@ impl App {
 
 impl LayerShellHandler for App {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
-        println!("o compositor fechou a superfície");
+        tracing::warn!("o compositor fechou a superfície");
         self.stop = true;
     }
 
@@ -204,7 +198,7 @@ impl LayerShellHandler for App {
     ) {
         let (w, h) = configure.new_size;
         self.size = (w.max(1) as i32, h.max(1) as i32);
-        println!("superfície configurada: {}x{}", self.size.0, self.size.1);
+        tracing::debug!("superfície configurada: {}x{}", self.size.0, self.size.1);
         match &self.target {
             Some(target) => target.window.resize(self.size.0, self.size.1, 0, 0),
             None => {

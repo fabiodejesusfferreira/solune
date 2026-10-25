@@ -111,6 +111,18 @@ pub enum PauseReason {
     Locked,
 }
 
+impl PauseReason {
+    /// O código como vai no protocolo e no catálogo (`pause_reason.<código>`).
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Fullscreen => "fullscreen",
+            Self::Battery => "battery",
+            Self::Locked => "locked",
+        }
+    }
+}
+
 /// Erro com código estável. Cada um tem texto em `error.<código>`, exceto
 /// `incompatible`, que a interface mostra como `daemon.incompatible`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -126,6 +138,19 @@ pub enum ErrorCode {
     Incompatible,
     #[error("erro interno do daemon")]
     Internal,
+}
+
+impl ErrorCode {
+    /// O código como vai no protocolo e no catálogo (`error.<código>`).
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::FileNotFound => "file_not_found",
+            Self::UnsupportedFormat => "unsupported_format",
+            Self::SurfaceUnavailable => "surface_unavailable",
+            Self::Incompatible => "incompatible",
+            Self::Internal => "internal",
+        }
+    }
 }
 
 /// Aviso espontâneo do daemon.
@@ -184,6 +209,30 @@ mod tests {
             serde_json::to_string(&PauseReason::Fullscreen).unwrap(),
             r#""fullscreen""#
         );
+    }
+
+    #[test]
+    fn code_bate_com_o_serde() {
+        use ErrorCode::*;
+        for code in [
+            FileNotFound,
+            UnsupportedFormat,
+            SurfaceUnavailable,
+            Incompatible,
+            Internal,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&code).unwrap(),
+                format!("\"{}\"", code.code())
+            );
+        }
+        use PauseReason::*;
+        for reason in [User, Fullscreen, Battery, Locked] {
+            assert_eq!(
+                serde_json::to_string(&reason).unwrap(),
+                format!("\"{}\"", reason.code())
+            );
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Bindings mínimos da API de cliente do libmpv.
 //!
 //! Escritos à mão a partir de `mpv/client.h` (licença ISC) para manter o
-//! grafo de crates livre de copyleft. Só o que o spike usa está aqui.
+//! grafo de crates livre de copyleft. Só o que o daemon usa está aqui.
 
 use std::ffi::{CStr, CString, c_char, c_double, c_int, c_void};
 use std::fmt;
@@ -43,6 +43,11 @@ unsafe extern "C" {
     ) -> c_int;
     fn mpv_command(ctx: *mut MpvHandle, args: *mut *const c_char) -> c_int;
     fn mpv_get_property_string(ctx: *mut MpvHandle, name: *const c_char) -> *mut c_char;
+    fn mpv_set_property_string(
+        ctx: *mut MpvHandle,
+        name: *const c_char,
+        data: *const c_char,
+    ) -> c_int;
     fn mpv_wait_event(ctx: *mut MpvHandle, timeout: c_double) -> *mut RawEvent;
 }
 
@@ -63,13 +68,20 @@ pub struct Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // SAFETY: mpv_error_string devolve uma string estática para qualquer código.
-        let msg = unsafe { CStr::from_ptr(mpv_error_string(self.code)) };
-        write!(f, "{}: {}", self.context, msg.to_string_lossy())
+        write!(f, "{}: {}", self.context, Self::describe(self.code))
     }
 }
 
 impl std::error::Error for Error {}
+
+impl Error {
+    /// A mensagem do libmpv para um código de erro.
+    pub fn describe(code: i32) -> String {
+        // SAFETY: mpv_error_string devolve uma string estática para qualquer código.
+        let msg = unsafe { CStr::from_ptr(mpv_error_string(code)) };
+        msg.to_string_lossy().into_owned()
+    }
+}
 
 pub(crate) fn check(code: c_int, context: impl Into<String>) -> Result<(), Error> {
     if code < 0 {
@@ -160,6 +172,14 @@ impl Mpv {
             mpv_free(raw.cast());
             Some(value)
         }
+    }
+
+    /// Muda uma propriedade a partir de texto, como `pause` = `yes`.
+    pub fn set_property(&self, name: &str, value: &str) -> Result<(), Error> {
+        let (n, v) = (cstring(name), cstring(value));
+        // SAFETY: handle válido, strings terminadas em nulo vivas durante a chamada.
+        let code = unsafe { mpv_set_property_string(self.handle, n.as_ptr(), v.as_ptr()) };
+        check(code, format!("propriedade {name}={value}"))
     }
 
     /// Espera o próximo evento. `None` quando o tempo acaba sem evento.

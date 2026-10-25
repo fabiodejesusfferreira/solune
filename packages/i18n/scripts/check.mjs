@@ -55,9 +55,15 @@ const catalogBases = new Set([...catalog.keys()].map(baseKey));
 for (const [key, file] of used) {
   if (!catalogBases.has(key)) problems.push(`chave usada sem texto no pt-BR: ${key} (${file})`);
 }
-for (const key of catalog.keys()) {
-  const dynamic = dynamicPrefixes.some((p) => key.startsWith(p));
-  if (!dynamic && !used.has(baseKey(key))) problems.push(`chave sem uso no código: ${key}`);
+// Sem nenhum uso ainda (antes de existir a interface), a checagem de chave
+// sem uso não diz nada e fica de fora.
+if (used.size === 0) {
+  console.warn("i18n: nenhum código usa o catálogo ainda; chaves sem uso não foram checadas");
+} else {
+  for (const key of catalog.keys()) {
+    const dynamic = dynamicPrefixes.some((p) => key.startsWith(p));
+    if (!dynamic && !used.has(baseKey(key))) problems.push(`chave sem uso no código: ${key}`);
+  }
 }
 for (const [key, text] of catalog) {
   if (text.includes("!")) problems.push(`exclamação em ${key}: ${text}`);

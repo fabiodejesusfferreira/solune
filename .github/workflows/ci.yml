@@ -26,14 +26,14 @@ jobs:
       - run: cargo fmt --all --check
 
   linux:
-    name: Linux (clippy, build, fumaça)
+    name: Linux (clippy, build, testes)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       # Só o libmpv de runtime: o -dev puxa centenas de pacotes e o espelho
       # do apt deixou o job parado por mais de 9 minutos. Os bindings do
-      # spike não usam cabeçalhos, e o build linka direto com o libmpv.so.2.
+      # daemon não usam cabeçalhos, e o build linka direto com o libmpv.so.2.
       - name: Dependências de sistema
         run: |
           sudo rm -f /var/lib/man-db/auto-update
@@ -43,11 +43,28 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
       - run: cargo test --workspace
-      - name: Teste de fumaça do spike (sem tela)
+      - name: Teste de ponta a ponta do daemon (sem tela)
         run: |
-          ffmpeg -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 3 \
+          ffmpeg -loglevel error -f lavfi -i testsrc2=size=320x180:rate=30 -t 3 \
             -c:v libx264 -pix_fmt yuv420p "$RUNNER_TEMP/teste.mp4"
-          cargo spike "$RUNNER_TEMP/teste.mp4" --seconds 3 --vo null
+          SOLUNE_TEST_VIDEO="$RUNNER_TEMP/teste.mp4" cargo test -p solune-daemon -- --ignored
+
+  js:
+    name: JS (lint, tipos, testes, tokens)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tokens
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
 
   windows:
     name: Windows (clippy)

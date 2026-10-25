@@ -1,3 +1,4 @@
 [alias]
-# cargo spike caminho/do/video.mp4
-spike = "run -p solune-player-spike --"
+# cargo daemon                 roda o daemon
+# cargo daemon play video.mp4  manda o daemon que está rodando tocar um vídeo
+daemon = "run -p solune-daemon --"

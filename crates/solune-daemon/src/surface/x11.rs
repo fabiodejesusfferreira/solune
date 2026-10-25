@@ -11,7 +11,6 @@ use std::mem::MaybeUninit;
 use std::os::fd::BorrowedFd;
 use std::ptr;
 use std::sync::Arc;
-use std::time::Instant;
 
 use khronos_egl as egl;
 use smithay_client_toolkit::reexports::calloop::{
@@ -19,8 +18,8 @@ use smithay_client_toolkit::reexports::calloop::{
 };
 use x11_dl::xlib::{self, Xlib};
 
-use crate::events::Events;
-use crate::gl::{Gl, PingWaker};
+use super::Ready;
+use super::gl::{Gl, PingWaker};
 use crate::mpv::Mpv;
 use crate::render::Interop;
 
@@ -188,7 +187,6 @@ struct App {
     // O Gl sai antes do Desktop: o contexto EGL usa a janela e o display.
     gl: Option<Gl>,
     desktop: Desktop,
-    events: Events,
     size: (i32, i32),
     error: Option<Box<dyn std::error::Error>>,
     stop: bool,
@@ -217,7 +215,7 @@ impl App {
         if let Some((w, h)) = root_size
             && (w, h) != self.size
         {
-            println!("resolução da tela mudou: {w}x{h}");
+            tracing::info!("resolução da tela mudou: {w}x{h}");
             self.desktop.resize(w, h);
         }
     }
@@ -231,11 +229,12 @@ impl App {
     }
 }
 
-pub fn run(
-    player: Mpv,
-    video: &str,
-    hwdec: &str,
-    deadline: Option<Instant>,
+/// Roda a superfície até `stop` receber um aviso ou ser fechado.
+pub(super) fn run(
+    player: Arc<Mpv>,
+    hwdec_off: bool,
+    ready: Ready,
+    stop: channel::Channel<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let desktop = Desktop::open()?;
     let mut attrs = MaybeUninit::<xlib::XWindowAttributes>::uninit();
@@ -245,7 +244,7 @@ pub fn run(
         attrs.assume_init()
     };
     let size = (attrs.width, attrs.height);
-    println!("janela de desktop: {}x{}", size.0, size.1);
+    tracing::info!("janela de desktop: {}x{}", size.0, size.1);
 
     let mut event_loop: EventLoop<App> = EventLoop::try_new()?;
     let handle = event_loop.handle();
@@ -268,18 +267,13 @@ pub fn run(
         .insert_source(ping_source, |_, _, app: &mut App| app.draw_if_needed())
         .map_err(|e| format!("falha ao registrar o wakeup: {e}"))?;
 
-    let player = Arc::new(player);
-    let (mut events, outcome) = Events::spawn(Arc::clone(&player), video, deadline);
     handle
-        .insert_source(outcome, |event, _, app: &mut App| match event {
-            channel::Event::Msg(Err(e)) => app.fail(e.into()),
-            channel::Event::Msg(Ok(())) | channel::Event::Closed => app.stop = true,
-        })
-        .map_err(|e| format!("falha ao registrar o canal de eventos: {e}"))?;
+        .insert_source(stop, |_, _, app: &mut App| app.stop = true)
+        .map_err(|e| format!("falha ao registrar o canal de parada: {e}"))?;
 
     // Como no layer-shell, com hwdec=no o display não vai para o libmpv:
     // assim ele não inicializa o VA-API na criação do contexto.
-    let interop = if hwdec == "no" {
+    let interop = if hwdec_off {
         Interop::None
     } else {
         Interop::X11(desktop.display.cast::<c_void>())
@@ -294,12 +288,11 @@ pub fn run(
             PingWaker(ping),
         )
     }?;
-    events.ready();
+    ready.ok();
 
     let mut app = App {
         gl: Some(gl),
         desktop,
-        events,
         size,
         error: None,
         stop: false,
@@ -318,7 +311,6 @@ pub fn run(
     };
     // O contexto de render e o EGL saem antes do libmpv e da janela.
     drop(app.gl.take());
-    app.events.shutdown();
     match app.error.take() {
         Some(e) => Err(e),
         None => result,

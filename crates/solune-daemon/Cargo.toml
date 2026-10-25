@@ -1,0 +1,36 @@
+[package]
+name = "solune-daemon"
+version = "0.0.0"
+description = "Daemon do Solune: toca o wallpaper com o libmpv e atende o app pelo socket local"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "solune-daemon"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+solune-ipc.workspace = true
+solune-core.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "signal", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# No Linux, tudo que é nativo (libwayland, libEGL, libX11) é carregado em
+# tempo de execução, então o build não precisa de pacotes -dev.
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = { version = "0.21.1", default-features = false, features = ["calloop"] }
+wayland-egl = "0.32.11"
+wayland-sys = { version = "0.31.11", features = ["dlopen"] }
+khronos-egl = { version = "6.0.0", features = ["dynamic"] }
+x11-dl = "2.21.0"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

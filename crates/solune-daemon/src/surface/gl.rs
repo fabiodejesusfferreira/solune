@@ -74,7 +74,7 @@ impl Gl {
         // SAFETY: o chamador garante que o display nativo é válido.
         let display = unsafe { egl.get_display(native_display) }.ok_or("EGL sem display")?;
         let (major, minor) = egl.initialize(display)?;
-        println!("EGL {major}.{minor}");
+        tracing::debug!("EGL {major}.{minor}");
 
         let config_attrs = [
             egl::SURFACE_TYPE,
