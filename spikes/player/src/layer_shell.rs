@@ -4,11 +4,9 @@
 //! os baseados em wlroots (Sway, Hyprland). O libmpv desenha pela render API
 //! num contexto EGL ligado à superfície.
 
-use std::ffi::{CStr, c_char, c_void};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, mpsc};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::ffi::c_void;
+use std::sync::Arc;
+use std::time::Instant;
 
 use khronos_egl as egl;
 use smithay_client_toolkit::{
@@ -17,8 +15,7 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
-            EventLoop,
-            channel::{self, Sender},
+            EventLoop, channel,
             ping::{Ping, make_ping},
         },
         calloop_wayland_source::WaylandSource,
@@ -40,41 +37,16 @@ use smithay_client_toolkit::{
 };
 use wayland_egl::WlEglSurface;
 
-use crate::mpv::{self, Mpv};
-use crate::render::{RenderContext, Wakeup};
-use crate::{Flow, past, poll};
+use crate::events::Events;
+use crate::gl::{Gl, PingWaker};
+use crate::mpv::Mpv;
+use crate::render::Interop;
 
-type Egl = egl::DynamicInstance<egl::EGL1_4>;
-
-static EGL: OnceLock<Egl> = OnceLock::new();
-
-/// Endereços das funções do OpenGL para o libmpv.
-unsafe extern "C" fn get_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
-    // SAFETY: o libmpv passa um nome terminado em nulo.
-    let name = unsafe { CStr::from_ptr(name) };
-    let (Some(egl), Ok(name)) = (EGL.get(), name.to_str()) else {
-        return std::ptr::null_mut();
-    };
-    egl.get_proc_address(name)
-        .map_or(std::ptr::null_mut(), |f| f as *mut c_void)
-}
-
-/// Acorda o laço de eventos quando o libmpv tem um quadro novo.
-#[derive(Debug)]
-struct PingWaker(Ping);
-
-impl Wakeup for PingWaker {
-    fn wake(&self) {
-        self.0.ping();
-    }
-}
-
-/// Estado EGL de uma superfície configurada.
-struct Gl {
-    display: egl::Display,
-    surface: egl::Surface,
+/// Contexto EGL e a janela EGL do Wayland em que ele desenha. Os campos saem
+/// na ordem da declaração: o contexto antes da janela.
+struct Target {
+    gl: Gl,
     window: WlEglSurface,
-    render: RenderContext<PingWaker>,
 }
 
 struct App {
@@ -85,10 +57,8 @@ struct App {
     player: Arc<Mpv>,
     hwdec_off: bool,
     waker: Option<Ping>,
-    /// Avisa a thread de eventos que o contexto de render existe e o
-    /// arquivo pode ser carregado.
-    ready: Option<mpsc::Sender<()>>,
-    gl: Option<Gl>,
+    events: Events,
+    target: Option<Target>,
     size: (i32, i32),
     error: Option<Box<dyn std::error::Error>>,
     stop: bool,
@@ -129,21 +99,10 @@ pub fn run(
         .insert_source(ping_source, |_, _, app: &mut App| app.draw_if_needed())
         .map_err(|e| format!("falha ao registrar o wakeup: {e}"))?;
 
-    // O render.h pede que a thread de render não chame a API comum do
-    // libmpv (comandos, propriedades, eventos): ela pode esperar pelo próprio
-    // render e travar. Por isso os eventos ficam numa thread separada.
     let player = Arc::new(player);
-    let stop = Arc::new(AtomicBool::new(false));
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let (outcome_tx, outcome_rx) = channel::channel();
-    let events = thread::spawn({
-        let player = Arc::clone(&player);
-        let stop = Arc::clone(&stop);
-        let video = video.to_owned();
-        move || events_thread(&player, &video, deadline, &stop, &ready_rx, &outcome_tx)
-    });
+    let (events, outcome) = Events::spawn(Arc::clone(&player), video, deadline);
     handle
-        .insert_source(outcome_rx, |event, _, app: &mut App| match event {
+        .insert_source(outcome, |event, _, app: &mut App| match event {
             channel::Event::Msg(Err(e)) => app.fail(e.into()),
             channel::Event::Msg(Ok(())) | channel::Event::Closed => app.stop = true,
         })
@@ -157,8 +116,8 @@ pub fn run(
         player,
         hwdec_off: hwdec == "no",
         waker: Some(ping),
-        ready: Some(ready_tx),
-        gl: None,
+        events,
+        target: None,
         size: (0, 0),
         error: None,
         stop: false,
@@ -172,47 +131,13 @@ pub fn run(
             break Err(e.into());
         }
     };
-    stop.store(true, Ordering::Relaxed);
     // O contexto de render e o EGL saem antes do libmpv e da superfície.
-    drop(app.gl.take());
-    let _ = events.join();
+    drop(app.target.take());
+    app.events.shutdown();
     match app.error.take() {
         Some(e) => Err(e),
         None => result,
     }
-}
-
-/// Carrega o arquivo quando a superfície fica pronta e trata os eventos do
-/// libmpv até o fim, o prazo ou o pedido de parada.
-fn events_thread(
-    player: &Mpv,
-    video: &str,
-    deadline: Option<Instant>,
-    stop: &AtomicBool,
-    ready: &mpsc::Receiver<()>,
-    outcome: &Sender<Result<(), String>>,
-) {
-    let run = || -> Result<(), mpv::Error> {
-        loop {
-            if stop.load(Ordering::Relaxed) || past(deadline) {
-                return Ok(());
-            }
-            match ready.recv_timeout(Duration::from_millis(100)) {
-                Ok(()) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-            }
-        }
-        player.command(&["loadfile", video])?;
-        let mut reported = false;
-        while !stop.load(Ordering::Relaxed) && !past(deadline) {
-            if poll(player, video, 0.25, &mut reported)? == Flow::Stop {
-                break;
-            }
-        }
-        Ok(())
-    };
-    let _ = outcome.send(run().map_err(|e| e.to_string()));
 }
 
 impl App {
@@ -224,112 +149,41 @@ impl App {
     /// Cria o EGL e o contexto de render na primeira configuração da superfície.
     fn setup_gl(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (width, height) = self.size;
-        let egl = match EGL.get() {
-            Some(egl) => egl,
-            None => {
-                // SAFETY: carrega o libEGL.so.1 uma vez; a instância vive até o fim do processo.
-                let loaded = unsafe { Egl::load_required() }
-                    .map_err(|e| format!("não foi possível carregar o libEGL: {e}"))?;
-                EGL.get_or_init(|| loaded)
-            }
-        };
-
         let wl_display = self.conn.backend().display_ptr().cast::<c_void>();
-        // SAFETY: wl_display é a conexão viva deste processo.
-        let display = unsafe { egl.get_display(wl_display) }.ok_or("EGL sem display Wayland")?;
-        let (major, minor) = egl.initialize(display)?;
-        println!("EGL {major}.{minor}");
-
-        let config_attrs = [
-            egl::SURFACE_TYPE,
-            egl::WINDOW_BIT,
-            egl::RENDERABLE_TYPE,
-            egl::OPENGL_BIT,
-            egl::RED_SIZE,
-            8,
-            egl::GREEN_SIZE,
-            8,
-            egl::BLUE_SIZE,
-            8,
-            egl::NONE,
-        ];
-        // RGB de 8 bits, sem alfa. O EGL ordena as configurações pela
-        // profundidade de cor, e a primeira pode ser de 10 bits (XR30) ou ter
-        // alfa; num Sway com renderer pixman, as duas aparecem pretas.
-        let mut configs = Vec::with_capacity(64);
-        egl.choose_config(display, &config_attrs, &mut configs)?;
-        let attrib = |c, a| egl.get_config_attrib(display, c, a).ok();
-        let config = configs
-            .into_iter()
-            .find(|&c| {
-                attrib(c, egl::RED_SIZE) == Some(8)
-                    && attrib(c, egl::GREEN_SIZE) == Some(8)
-                    && attrib(c, egl::BLUE_SIZE) == Some(8)
-                    && attrib(c, egl::ALPHA_SIZE) == Some(0)
-            })
-            .ok_or("nenhuma configuração EGL RGB de 8 bits com OpenGL")?;
-        egl.bind_api(egl::OPENGL_API)?;
-        let context = egl.create_context(display, config, None, &[egl::NONE])?;
-
         let window = WlEglSurface::new(self.layer.wl_surface().id(), width, height)?;
-        // SAFETY: a janela EGL do Wayland vive em Gl junto com a superfície EGL.
-        let surface = unsafe {
-            egl.create_window_surface(display, config, window.ptr() as egl::NativeWindowType, None)
-        }?;
-        egl.make_current(display, Some(surface), Some(surface), Some(context))?;
-        // Sem vsync no swap: quem dita o ritmo é o libmpv, e um swap que
-        // bloqueia esperando o compositor travaria o laço de eventos.
-        egl.swap_interval(display, 0)?;
 
         // Com o wl_display, o libmpv inicializa o VA-API já na criação do
         // contexto, mesmo com hwdec=no. Sem GPU isso derruba o processo dentro
         // do libva-wayland (o mpv de linha de comando cai do mesmo jeito), então
         // com hwdec=no o display não é passado.
-        let interop_display = if self.hwdec_off {
-            std::ptr::null_mut()
+        let interop = if self.hwdec_off {
+            Interop::None
         } else {
-            wl_display
+            Interop::Wayland(wl_display)
         };
 
         let waker = PingWaker(self.waker.take().ok_or("wakeup já usado")?);
-        // SAFETY: o contexto acabou de ficar atual; wl_display vive mais que App.gl.
-        let render = unsafe {
-            RenderContext::new(
+        // SAFETY: wl_display é a conexão viva deste processo e a janela EGL
+        // fica em Target junto com o Gl, que sai primeiro.
+        let gl = unsafe {
+            Gl::new(
+                wl_display,
+                window.ptr() as egl::NativeWindowType,
+                interop,
                 Arc::clone(&self.player),
-                get_proc_address,
-                interop_display,
                 waker,
             )
         }?;
-        self.gl = Some(Gl {
-            display,
-            surface,
-            window,
-            render,
-        });
-        if let Some(ready) = self.ready.take() {
-            let _ = ready.send(());
-        }
+        self.target = Some(Target { gl, window });
+        self.events.ready();
         Ok(())
     }
 
     fn draw_if_needed(&mut self) {
-        let Some(gl) = &self.gl else { return };
-        if !gl.render.needs_frame() {
-            return;
-        }
+        let Some(target) = &self.target else { return };
         let (width, height) = self.size;
-        let result = gl
-            .render
-            .render(width, height)
-            .map_err(Into::into)
-            .and_then(|()| {
-                let egl = EGL.get().expect("EGL carregado em setup_gl");
-                egl.swap_buffers(gl.display, gl.surface).map_err(Into::into)
-            });
-        match result {
-            Ok(()) => gl.render.report_swap(),
-            Err(e) => self.fail(e),
+        if let Err(e) = target.gl.draw_if_needed(width, height) {
+            self.fail(e);
         }
     }
 }
@@ -351,8 +205,8 @@ impl LayerShellHandler for App {
         let (w, h) = configure.new_size;
         self.size = (w.max(1) as i32, h.max(1) as i32);
         println!("superfície configurada: {}x{}", self.size.0, self.size.1);
-        match &self.gl {
-            Some(gl) => gl.window.resize(self.size.0, self.size.1, 0, 0),
+        match &self.target {
+            Some(target) => target.window.resize(self.size.0, self.size.1, 0, 0),
             None => {
                 if let Err(e) = self.setup_gl() {
                     self.fail(e);

@@ -5,25 +5,34 @@
 //!
 //! - `janela`: a janela do próprio mpv (etapa 1, referência).
 //! - `layer-shell`: camada de fundo do Wayland, no KDE 6 e no wlroots.
+//! - `x11`: janela do tipo desktop, em sessões X11 como o Cinnamon.
 
+#[cfg(target_os = "linux")]
+mod events;
+#[cfg(target_os = "linux")]
+mod gl;
 #[cfg(target_os = "linux")]
 mod layer_shell;
 mod mpv;
 #[cfg(target_os = "linux")]
 mod render;
+#[cfg(target_os = "linux")]
+mod x11;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use mpv::{Event, Mpv};
 
-const USAGE: &str = "uso: solune-player-spike <video> [--surface janela|layer-shell] [--seconds N] [--hwdec MODO] [--vo SAIDA]";
+const USAGE: &str = "uso: solune-player-spike <video> [--surface janela|layer-shell|x11] [--seconds N] [--hwdec MODO] [--vo SAIDA]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Surface {
     Window,
     #[cfg(target_os = "linux")]
     LayerShell,
+    #[cfg(target_os = "linux")]
+    X11,
 }
 
 struct Args {
@@ -66,6 +75,8 @@ fn parse_args() -> Result<Args, String> {
                     Some("janela") => Surface::Window,
                     #[cfg(target_os = "linux")]
                     Some("layer-shell") => Surface::LayerShell,
+                    #[cfg(target_os = "linux")]
+                    Some("x11") => Surface::X11,
                     _ => return Err(format!("superfície desconhecida\n{USAGE}")),
                 };
             }
@@ -106,14 +117,10 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 options.push(("vo", vo));
             }
         }
-        // A superfície desenha os quadros pela render API. O cache de shaders
-        // fica desligado: no llvmpipe (Mesa 25.2), os binários que o próprio
-        // spike gravou deixam todos os quadros pretos na execução seguinte.
-        // Ainda não testado em GPU real.
+        // As superfícies desenham os quadros pela render API.
         #[cfg(target_os = "linux")]
-        Surface::LayerShell => {
+        Surface::LayerShell | Surface::X11 => {
             options.push(("vo", "libmpv"));
-            options.push(("gpu-shader-cache", "no"));
         }
     }
     let player = Mpv::new(&options)?;
@@ -134,6 +141,8 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(target_os = "linux")]
         Surface::LayerShell => layer_shell::run(player, &args.video, &args.hwdec, deadline),
+        #[cfg(target_os = "linux")]
+        Surface::X11 => x11::run(player, &args.video, &args.hwdec, deadline),
     }
 }
 

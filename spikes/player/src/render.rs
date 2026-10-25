@@ -36,6 +36,15 @@ struct OpenGlFbo {
     internal_format: c_int,
 }
 
+/// Display nativo que o libmpv usa para a decodificação por hardware com
+/// interop (VA-API sobre EGL). `None` deixa o hwdec sem interop.
+#[derive(Debug, Clone, Copy)]
+pub enum Interop {
+    None,
+    Wayland(*mut c_void),
+    X11(*mut c_void),
+}
+
 /// Função que devolve o endereço de uma função do OpenGL pelo nome.
 pub type GetProcAddress =
     unsafe extern "C" fn(ctx: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -64,6 +73,7 @@ const PARAM_API_TYPE: c_int = 1;
 const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 const PARAM_OPENGL_FBO: c_int = 3;
 const PARAM_FLIP_Y: c_int = 4;
+const PARAM_X11_DISPLAY: c_int = 8;
 const PARAM_WL_DISPLAY: c_int = 9;
 
 const UPDATE_FRAME: u64 = 1 << 0;
@@ -91,18 +101,17 @@ pub struct RenderContext<W: Wakeup> {
 }
 
 impl<W: Wakeup> RenderContext<W> {
-    /// Cria o contexto. `wl_display` permite ao libmpv usar a decodificação
-    /// por hardware com interop EGL no Wayland.
+    /// Cria o contexto.
     ///
     /// # Safety
     ///
     /// O contexto OpenGL precisa estar atual nesta thread, e `get_proc_address`
-    /// precisa ser válido para ele. `wl_display`, se não nulo, precisa viver
-    /// mais que o contexto.
+    /// precisa ser válido para ele. O display de `interop` precisa viver mais
+    /// que o contexto.
     pub unsafe fn new(
         mpv: Arc<Mpv>,
         get_proc_address: GetProcAddress,
-        wl_display: *mut c_void,
+        interop: Interop,
         waker: W,
     ) -> Result<Self, mpv::Error> {
         let api = CString::new("opengl").expect("sem byte nulo");
@@ -120,11 +129,16 @@ impl<W: Wakeup> RenderContext<W> {
                 data: (&raw mut init).cast(),
             },
         ];
-        if !wl_display.is_null() {
-            params.push(RenderParam {
+        match interop {
+            Interop::None => {}
+            Interop::Wayland(display) => params.push(RenderParam {
                 kind: PARAM_WL_DISPLAY,
-                data: wl_display,
-            });
+                data: display,
+            }),
+            Interop::X11(display) => params.push(RenderParam {
+                kind: PARAM_X11_DISPLAY,
+                data: display,
+            }),
         }
         params.push(RenderParam {
             kind: PARAM_INVALID,

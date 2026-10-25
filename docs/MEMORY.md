@@ -94,8 +94,9 @@ Sete telas aprovadas no canvas [Solune UI e UX](https://claude.ai/artifact/T65bC
 Spike do player em `spikes/player/`:
 
 - Etapa 1, janela do mpv: pronta; teste de fumaça sem tela no CI.
-- Etapa 2, layer-shell (KDE 6 e wlroots): pronta e testada só num Sway 1.9 sem tela, com renderização por software. Achados: a thread de render não pode chamar a API comum do libmpv (os eventos ficam noutra thread); a configuração EGL precisa ser RGB de 8 bits sem alfa; o cache de shaders do mpv deixou os quadros pretos no llvmpipe e está desligado.
-- Etapa 3, X11 (janela desktop): próxima. O Fábio usa Linux Mint com Cinnamon (X11), então o layer-shell não roda na máquina dele; o X11 roda.
+- Etapa 2, layer-shell (KDE 6 e wlroots): pronta e testada só num Sway 1.9 sem tela, com renderização por software. Achados: a thread de render não pode chamar a API comum do libmpv (os eventos ficam noutra thread, `events.rs`); a configuração EGL precisa ser RGB de 8 bits sem alfa; com hwdec=no o display não vai para o libmpv, senão o VA-API derruba o processo sem GPU.
+- Etapa 3, X11 (janela `_NET_WM_WINDOW_TYPE_DESKTOP`): pronta e testada só num Xvfb sem gerenciador de janelas. EGL e render ficam em `gl.rs`, comuns às duas superfícies. Falta o Fábio rodar no Mint (Cinnamon, X11) e dizer se os ícones do Nemo continuam por cima do vídeo.
+- Quadros pretos no llvmpipe: o mpv às vezes desenha preto ou meia tela durante uma execução inteira, nas duas superfícies e também no mpv de linha de comando com `--vo=gpu` (5 de 6 execuções aqui), enquanto `--vo=x11` sem GL sai certo. É do mpv no renderizador por software, não do spike. A conclusão anterior, de que o cache de shaders causava isso, estava errada; a opção `gpu-shader-cache=no` saiu.
 - Etapa 4, WorkerW no Windows 11: o Fábio tem uma máquina com Windows 11 (versão ainda não confirmada).
 - Depois: medir CPU e GPU nas duas plataformas e fazer o scaffold completo.
 
