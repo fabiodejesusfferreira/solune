@@ -5,6 +5,9 @@
     "linux": {
       "deb": {
         "depends": ["libmpv2"]
+      },
+      "rpm": {
+        "depends": ["libmpv.so.2()(64bit)"]
       }
     }
   }
