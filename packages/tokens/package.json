@@ -1,0 +1,19 @@
+{
+  "name": "@solune/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tokens do design system do Solune: tokens.json gera CSS e TS",
+  "exports": {
+    ".": "./dist/tokens.ts",
+    "./tokens.css": "./dist/tokens.css"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node scripts/contrast.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "style-dictionary": "5.7.1"
+  }
+}

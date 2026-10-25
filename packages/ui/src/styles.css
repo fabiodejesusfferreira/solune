@@ -1,0 +1,209 @@
+/* Componentes do design system. Cores, espaços e tipos vêm só dos tokens. */
+@import "@solune/tokens/tokens.css";
+
+.sl-btn {
+  font: var(--text-body-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-2) var(--space-4);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-color) var(--easing-standard),
+    border-color var(--duration-color) var(--easing-standard);
+}
+.sl-btn--sm {
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  font: var(--text-label);
+}
+.sl-btn--primary {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.sl-btn--primary:hover {
+  background: var(--ink-muted);
+}
+.sl-btn--secondary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.sl-btn--secondary:hover,
+.sl-btn--ghost:hover {
+  background: var(--surface-2);
+}
+.sl-btn--ghost {
+  background: transparent;
+  color: var(--ink);
+}
+.sl-btn--sun {
+  background: var(--sun);
+  color: var(--on-sun);
+}
+.sl-btn--sun:hover {
+  filter: brightness(0.94);
+}
+.sl-btn[disabled] {
+  cursor: not-allowed;
+  background: var(--surface-2);
+  color: var(--ink-muted);
+  border-color: transparent;
+  filter: none;
+}
+.sl-btn__icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.sl-btn:focus-visible,
+.sl-toggle:focus-visible,
+.sl-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.sl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: var(--text-body);
+  cursor: pointer;
+}
+.sl-toggle__track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  transition:
+    background var(--duration-color) var(--easing-standard),
+    border-color var(--duration-color) var(--easing-standard);
+  flex: none;
+}
+.sl-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-muted);
+  transition:
+    transform var(--duration-toggle) var(--easing-standard),
+    background var(--duration-color) var(--easing-standard);
+}
+.sl-toggle[aria-checked="true"] .sl-toggle__track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.sl-toggle[aria-checked="true"] .sl-toggle__knob {
+  background: var(--on-primary);
+  transform: translateX(16px);
+}
+
+.sl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font: var(--text-label);
+  letter-spacing: var(--text-label-tracking);
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid transparent;
+}
+.sl-chip--sun {
+  background: transparent;
+  color: var(--sun-text);
+  border-color: var(--sun);
+}
+.sl-chip--success {
+  background: transparent;
+  color: var(--success);
+  border-color: var(--success);
+}
+.sl-chip--danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.sl-card {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--shadow-raised);
+  font-family: var(--font-body);
+}
+.sl-card:hover {
+  background: var(--surface-2);
+}
+.sl-card[aria-pressed="true"] {
+  border-color: var(--sun);
+}
+.sl-card__art {
+  position: relative;
+  height: 124px;
+  background: var(--surface-2);
+}
+.sl-card__art > svg,
+.sl-card__art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sl-card__badge {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--scrim);
+  color: var(--on-scrim);
+  font: var(--text-data);
+  font-weight: 500;
+}
+.sl-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+}
+.sl-card__title {
+  font: var(--text-body-strong);
+}
+.sl-card__meta {
+  font: var(--text-caption);
+  color: var(--ink-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-btn,
+  .sl-toggle__track,
+  .sl-toggle__knob {
+    transition: none;
+  }
+}

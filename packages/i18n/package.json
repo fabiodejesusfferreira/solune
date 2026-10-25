@@ -1,0 +1,28 @@
+{
+  "name": "@solune/i18n",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Catálogos de tradução do Solune, com pt-BR como base",
+  "exports": {
+    ".": "./src/index.ts",
+    "./locales/*": "./locales/*"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "pseudo": "node scripts/pseudo.mjs",
+    "test": "node scripts/check.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "i18next": "26.5.10",
+    "react-i18next": "17.1.9"
+  },
+  "peerDependencies": {
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "react": "19.3.1",
+    "@types/react": "19.3.0"
+  }
+}

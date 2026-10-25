@@ -1,0 +1,43 @@
+{
+  "app": {
+    "name": "Solune"
+  },
+  "library": {
+    "title": "Biblioteca",
+    "empty": "Arraste um vídeo ou imagem para começar",
+    "import": "Importar vídeo",
+    "count_one": "{{count}} wallpaper",
+    "count_other": "{{count}} wallpapers"
+  },
+  "player": {
+    "apply": "Definir como papel de parede",
+    "pause": "Pausar",
+    "resume": "Retomar",
+    "state": {
+      "playing": "Tocando",
+      "paused": "Pausado",
+      "stopped": "Parado"
+    }
+  },
+  "daemon": {
+    "connecting": "Conectando ao serviço do Solune",
+    "offline": "O serviço do Solune não está rodando. Abra o app de novo para iniciá-lo.",
+    "incompatible": "O serviço do Solune é de outra versão. Reinicie o computador ou reinstale o app."
+  },
+  "pause_reason": {
+    "user": "Pausado por você",
+    "fullscreen": "Pausado enquanto um app está em tela cheia",
+    "battery": "Pausado enquanto o notebook está na bateria",
+    "locked": "Pausado enquanto a tela está bloqueada"
+  },
+  "error": {
+    "file_not_found": "Não encontrei o arquivo. Ele pode ter sido movido ou apagado.",
+    "unsupported_format": "Não consegui abrir o vídeo. Converta para MP4 e tente de novo.",
+    "surface_unavailable": "Não consegui pôr o vídeo no fundo da tela nesta sessão.",
+    "internal": "Algo deu errado no serviço do Solune. Tente de novo."
+  },
+  "tray": {
+    "open": "Abrir o Solune",
+    "quit": "Sair"
+  }
+}
