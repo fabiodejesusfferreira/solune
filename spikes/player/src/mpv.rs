@@ -8,7 +8,7 @@ use std::fmt;
 use std::ptr;
 
 #[repr(C)]
-struct MpvHandle {
+pub(crate) struct MpvHandle {
     _private: [u8; 0],
 }
 
@@ -71,7 +71,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn check(code: c_int, context: impl Into<String>) -> Result<(), Error> {
+pub(crate) fn check(code: c_int, context: impl Into<String>) -> Result<(), Error> {
     if code < 0 {
         Err(Error {
             code,
@@ -132,6 +132,10 @@ impl Mpv {
         Ok(mpv)
     }
 
+    pub(crate) fn raw(&self) -> *mut MpvHandle {
+        self.handle
+    }
+
     /// Roda um comando, como `["loadfile", "video.mp4"]`.
     pub fn command(&self, args: &[&str]) -> Result<(), Error> {
         let owned: Vec<CString> = args.iter().map(|a| cstring(a)).collect();
@@ -176,6 +180,13 @@ impl Mpv {
         })
     }
 }
+
+// SAFETY: a API de cliente do libmpv é thread-safe ("generally fully
+// thread-safe", client.h); o único requisito, um só chamador de
+// mpv_wait_event por vez, é cumprido por quem usa a instância.
+unsafe impl Send for Mpv {}
+// SAFETY: veja acima.
+unsafe impl Sync for Mpv {}
 
 impl Drop for Mpv {
     fn drop(&mut self) {

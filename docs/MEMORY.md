@@ -91,7 +91,13 @@ Sete telas aprovadas no canvas [Solune UI e UX](https://claude.ai/artifact/T65bC
 
 ## Próximo passo
 
-Spike do player em `spikes/player/`: a etapa 1 (libmpv tocando um mp4 na janela do mpv) compila e passou no teste de fumaça sem tela; ainda não foi vista numa tela real. Faltam o WorkerW no Windows 11 24H2 e o layer-shell no KDE ou Sway, com CPU e GPU medidos. Depois, o scaffold completo do workspace.
+Spike do player em `spikes/player/`:
+
+- Etapa 1, janela do mpv: pronta; teste de fumaça sem tela no CI.
+- Etapa 2, layer-shell (KDE 6 e wlroots): pronta e testada só num Sway 1.9 sem tela, com renderização por software. Achados: a thread de render não pode chamar a API comum do libmpv (os eventos ficam noutra thread); a configuração EGL precisa ser RGB de 8 bits sem alfa; o cache de shaders do mpv deixou os quadros pretos no llvmpipe e está desligado.
+- Etapa 3, X11 (janela desktop): próxima. O Fábio usa Linux Mint com Cinnamon (X11), então o layer-shell não roda na máquina dele; o X11 roda.
+- Etapa 4, WorkerW no Windows 11: o Fábio tem uma máquina com Windows 11 (versão ainda não confirmada).
+- Depois: medir CPU e GPU nas duas plataformas e fazer o scaffold completo.
 
 ## Regras de trabalho
 

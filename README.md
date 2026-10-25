@@ -8,7 +8,7 @@ O projeto está no começo: este repositório tem só o setup mínimo e o spike 
 
 | Caminho | O que é |
 | --- | --- |
-| `spikes/player/` | Spike do player: libmpv tocando um vídeo. Fora do release |
+| `spikes/player/` | Spike do player: libmpv tocando um vídeo, na janela do mpv ou como papel de parede. Fora do release |
 | `docs/` | Contexto do projeto, memória e decisões (`docs/decisions/`) |
 | `.github/workflows/ci.yml` | CI no Linux e no Windows |
 
@@ -24,10 +24,17 @@ O layout completo (daemon, protocolo de IPC, app Tauri, tokens, i18n) entra depo
 ## Rodar o spike
 
 ```sh
-cargo spike caminho/do/video.mp4
+cargo spike caminho/do/video.mp4 [--surface janela|layer-shell] [--seconds N] [--hwdec MODO] [--vo SAIDA]
 ```
 
-Opções: `--seconds N` encerra depois de N segundos; `--vo null` toca sem abrir janela (teste de fumaça). O spike imprime o decodificador em uso (`hwdec`), a saída de vídeo e o formato do arquivo.
+| Superfície | Onde o vídeo aparece | Status |
+| --- | --- | --- |
+| `janela` (padrão) | Janela do próprio mpv | Referência; `--vo null` toca sem tela (teste de fumaça) |
+| `layer-shell` | Camada de fundo do Wayland: KDE Plasma 6 e wlroots (Sway, Hyprland) | Testado só num Sway 1.9 sem tela, com renderização por software |
+
+O spike imprime o decodificador em uso (`hwdec`), a saída de vídeo e o formato do arquivo. `--hwdec` repassa o modo ao mpv (padrão `auto-safe`; `no` desliga).
+
+No Linux, o modo `layer-shell` carrega o libwayland e o libEGL em tempo de execução, então o build não precisa de pacotes -dev além do libmpv.
 
 ## Verificações
 

@@ -14,3 +14,11 @@ path = "src/main.rs"
 
 [lints]
 workspace = true
+
+# No Linux, tudo que é nativo (libwayland, libEGL) é carregado em tempo de
+# execução, então o build não precisa de pacotes -dev.
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = { version = "0.21.1", default-features = false, features = ["calloop"] }
+wayland-egl = "0.32.11"
+wayland-sys = { version = "0.31.11", features = ["dlopen"] }
+khronos-egl = { version = "6.0.0", features = ["dynamic"] }

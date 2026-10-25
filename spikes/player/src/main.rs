@@ -1,29 +1,54 @@
 //! Spike do player do Solune.
 //!
-//! Etapa 1: o libmpv toca um vídeo em loop, sem áudio e com decodificação
-//! por hardware quando disponível, na janela do próprio mpv. As próximas
-//! etapas trocam essa janela pela superfície de wallpaper (WorkerW no
-//! Windows, layer-shell no KDE e wlroots).
+//! O libmpv toca um vídeo em loop, sem áudio e com decodificação por
+//! hardware quando disponível. Onde o vídeo aparece depende da superfície:
+//!
+//! - `janela`: a janela do próprio mpv (etapa 1, referência).
+//! - `layer-shell`: camada de fundo do Wayland, no KDE 6 e no wlroots.
 
+#[cfg(target_os = "linux")]
+mod layer_shell;
 mod mpv;
+#[cfg(target_os = "linux")]
+mod render;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use mpv::{Event, Mpv};
 
-const USAGE: &str = "uso: solune-player-spike <video> [--seconds N] [--vo SAIDA]";
+const USAGE: &str = "uso: solune-player-spike <video> [--surface janela|layer-shell] [--seconds N] [--hwdec MODO] [--vo SAIDA]";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Surface {
+    Window,
+    #[cfg(target_os = "linux")]
+    LayerShell,
+}
 
 struct Args {
     video: String,
+    surface: Surface,
     seconds: Option<u64>,
-    /// Saída de vídeo do mpv; `null` serve para teste de fumaça sem tela.
+    /// Modo de decodificação por hardware do mpv; o padrão é `auto-safe`.
+    hwdec: String,
+    /// Saída de vídeo do mpv no modo janela; `null` serve para teste de
+    /// fumaça sem tela.
     vo: Option<String>,
+}
+
+/// Se a reprodução deve continuar depois de um evento do libmpv.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    Stop,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut video = None;
+    let mut surface = Surface::Window;
     let mut seconds = None;
+    let mut hwdec = String::from("auto-safe");
     let mut vo = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -36,6 +61,15 @@ fn parse_args() -> Result<Args, String> {
                         .map_err(|_| "--seconds precisa de um número")?,
                 );
             }
+            "--surface" => {
+                surface = match args.next().as_deref() {
+                    Some("janela") => Surface::Window,
+                    #[cfg(target_os = "linux")]
+                    Some("layer-shell") => Surface::LayerShell,
+                    _ => return Err(format!("superfície desconhecida\n{USAGE}")),
+                };
+            }
+            "--hwdec" => hwdec = args.next().ok_or("--hwdec precisa de um modo")?,
             "--vo" => vo = Some(args.next().ok_or("--vo precisa de um nome")?),
             "-h" | "--help" => return Err(USAGE.into()),
             _ if video.is_none() => video = Some(arg),
@@ -43,7 +77,16 @@ fn parse_args() -> Result<Args, String> {
         }
     }
     let video = video.ok_or(USAGE)?;
-    Ok(Args { video, seconds, vo })
+    if vo.is_some() && surface != Surface::Window {
+        return Err("--vo só vale com --surface janela".into());
+    }
+    Ok(Args {
+        video,
+        surface,
+        seconds,
+        hwdec,
+        vo,
+    })
 }
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -53,38 +96,79 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut options = vec![
         ("terminal", "yes"),
         ("msg-level", "all=warn"),
-        ("hwdec", "auto-safe"),
+        ("hwdec", &args.hwdec),
         ("loop-file", "inf"),
         ("aid", "no"),
     ];
-    if let Some(vo) = &args.vo {
-        options.push(("vo", vo));
+    match args.surface {
+        Surface::Window => {
+            if let Some(vo) = &args.vo {
+                options.push(("vo", vo));
+            }
+        }
+        // A superfície desenha os quadros pela render API. O cache de shaders
+        // fica desligado: no llvmpipe (Mesa 25.2), os binários que o próprio
+        // spike gravou deixam todos os quadros pretos na execução seguinte.
+        // Ainda não testado em GPU real.
+        #[cfg(target_os = "linux")]
+        Surface::LayerShell => {
+            options.push(("vo", "libmpv"));
+            options.push(("gpu-shader-cache", "no"));
+        }
     }
     let player = Mpv::new(&options)?;
-    player.command(&["loadfile", &args.video])?;
-
     let deadline = args
         .seconds
         .map(|s| Instant::now() + Duration::from_secs(s));
-    loop {
-        if deadline.is_some_and(|d| Instant::now() >= d) {
-            println!("tempo esgotado, encerrando");
-            return Ok(());
+
+    match args.surface {
+        Surface::Window => {
+            player.command(&["loadfile", &args.video])?;
+            let mut reported = false;
+            while !past(deadline) {
+                if poll(&player, &args.video, 0.5, &mut reported)? == Flow::Stop {
+                    return Ok(());
+                }
+            }
+            Ok(())
         }
-        match player.wait_event(0.5) {
-            Some(Event::FileLoaded) => println!("arquivo carregado: {}", args.video),
-            Some(Event::PlaybackRestart) => report(&player),
-            Some(Event::EndFile { error: Some(code) }) => {
+        #[cfg(target_os = "linux")]
+        Surface::LayerShell => layer_shell::run(player, &args.video, &args.hwdec, deadline),
+    }
+}
+
+/// Diz se o prazo de `--seconds` passou, e avisa quando passa.
+fn past(deadline: Option<Instant>) -> bool {
+    let over = deadline.is_some_and(|d| Instant::now() >= d);
+    if over {
+        println!("tempo esgotado, encerrando");
+    }
+    over
+}
+
+/// Trata os eventos pendentes do libmpv, esperando até `timeout` segundos
+/// pelo primeiro. `reported` evita repetir o relatório a cada volta do loop.
+fn poll(player: &Mpv, video: &str, timeout: f64, reported: &mut bool) -> Result<Flow, mpv::Error> {
+    let mut wait = timeout;
+    while let Some(event) = player.wait_event(wait) {
+        wait = 0.0;
+        match event {
+            Event::FileLoaded => println!("arquivo carregado: {video}"),
+            Event::PlaybackRestart if !*reported => {
+                *reported = true;
+                report(player);
+            }
+            Event::EndFile { error: Some(code) } => {
                 return Err(mpv::Error {
                     code,
-                    context: format!("não foi possível tocar {}", args.video),
-                }
-                .into());
+                    context: format!("não foi possível tocar {video}"),
+                });
             }
-            Some(Event::Shutdown) => return Ok(()),
-            Some(Event::EndFile { error: None } | Event::Other) | None => {}
+            Event::Shutdown => return Ok(Flow::Stop),
+            Event::PlaybackRestart | Event::EndFile { error: None } | Event::Other => {}
         }
     }
+    Ok(Flow::Continue)
 }
 
 /// Imprime o que importa para o spike: decodificador, saída e formato.
