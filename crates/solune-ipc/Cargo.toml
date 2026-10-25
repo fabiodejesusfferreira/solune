@@ -1,0 +1,29 @@
+[package]
+name = "solune-ipc"
+version = "0.0.0"
+description = "Protocolo entre o app do Solune e o daemon: mensagens, versão, framing e transporte"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["transport"]
+# Socket local (Unix socket no Linux, named pipe no Windows) sobre tokio.
+# Sem ela, sobram só os tipos do protocolo.
+transport = ["dep:interprocess", "dep:tokio"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+interprocess = { workspace = true, features = ["tokio"], optional = true }
+tokio = { workspace = true, features = ["io-util", "sync", "rt", "macros", "time"], optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true

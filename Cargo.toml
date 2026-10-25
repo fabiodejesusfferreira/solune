@@ -1,12 +1,24 @@
 [workspace]
 resolver = "3"
-members = ["spikes/player"]
+members = ["crates/*", "spikes/player"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
 repository = "https://github.com/fabiodejesusfferreira/solune"
+
+[workspace.dependencies]
+solune-ipc = { path = "crates/solune-ipc" }
+solune-core = { path = "crates/solune-core" }
+interprocess = "2.4.7"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = "1.54.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tempfile = "3.27.0"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

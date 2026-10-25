@@ -1,0 +1,16 @@
+[package]
+name = "solune-core"
+version = "0.0.0"
+description = "Lógica do Solune que roda sem GPU nem compositor: política de pausa e agenda de temas"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+solune-ipc = { workspace = true, default-features = false }
+serde.workspace = true
