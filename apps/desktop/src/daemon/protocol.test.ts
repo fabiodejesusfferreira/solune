@@ -22,6 +22,7 @@ describe("contrato com o protocolo do Rust", () => {
       path: "/home/ana/Vídeos/praia.mp4",
       pause_reason: null,
       hwdec: "vaapi",
+      theme: "dark",
     });
     expect(parseStatus(statuses.paused).pause_reason).toBe("battery");
   });
@@ -41,10 +42,13 @@ describe("contrato com o protocolo do Rust", () => {
         pause_on_battery: false,
         pause_on_lock: true,
         release_when_paused: true,
+        sound: false,
+        show_desktop_icons: true,
+        schedule: { mode: "times", light_at: 420, dark_at: 1170 },
       },
-      conditions: { fullscreen: true, on_battery: null, screen_locked: false },
+      conditions: { fullscreen: true, on_battery: null, screen_locked: false, dark: true },
     });
-    expect(Object.keys(policy.settings).sort()).toEqual([...settingNames].sort());
+    expect(Object.keys(policy.settings).sort()).toEqual([...settingNames, "schedule"].sort());
   });
 
   it("lê o uso, com e sem números", () => {

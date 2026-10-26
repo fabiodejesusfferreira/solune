@@ -4,7 +4,7 @@ Data: 25 out. 2026. Status: aceita.
 
 ## Contexto
 
-O plano do setup inicial deixou quatro decisões para o scaffold completo, cada uma com uma recomendação. O Fábio pediu para seguir as recomendações.
+O plano do setup inicial deixou quatro decisões para o scaffold completo, cada uma com uma recomendação. O usuário pediu para seguir as recomendações.
 
 ## Decisão
 

@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
+    #[default]
     Light,
     Dark,
 }
@@ -14,15 +15,11 @@ pub enum Theme {
 pub struct TimeOfDay(u16);
 
 impl TimeOfDay {
-    pub const MINUTES_PER_DAY: u16 = 24 * 60;
+    pub const MIDNIGHT: Self = Self(0);
 
     /// `None` fora de 00:00 a 23:59.
     pub fn new(hour: u8, minute: u8) -> Option<Self> {
         (hour < 24 && minute < 60).then(|| Self(u16::from(hour) * 60 + u16::from(minute)))
-    }
-
-    pub fn minutes(self) -> u16 {
-        self.0
     }
 }
 
@@ -58,24 +55,6 @@ impl Schedule {
                 if light { Theme::Light } else { Theme::Dark }
             }
         }
-    }
-
-    /// Minutos até a próxima troca de tema, para o daemon agendar o timer.
-    /// `None` quando a troca não depende do relógio.
-    pub fn minutes_until_change(self, now: TimeOfDay) -> Option<u16> {
-        let Self::Times { light_at, dark_at } = self else {
-            return None;
-        };
-        let until = |target: TimeOfDay| {
-            let day = TimeOfDay::MINUTES_PER_DAY;
-            (target.0 + day - now.0) % day
-        };
-        let next = [until(light_at), until(dark_at)]
-            .into_iter()
-            .filter(|&m| m > 0)
-            .min()
-            .unwrap_or(TimeOfDay::MINUTES_PER_DAY);
-        Some(next)
     }
 }
 
@@ -120,18 +99,5 @@ mod tests {
         assert_eq!(schedule.theme_at(t(23, 0), Theme::Dark), Theme::Light);
         assert_eq!(schedule.theme_at(t(1, 0), Theme::Dark), Theme::Light);
         assert_eq!(schedule.theme_at(t(12, 0), Theme::Light), Theme::Dark);
-    }
-
-    #[test]
-    fn proxima_troca() {
-        let schedule = Schedule::Times {
-            light_at: t(7, 0),
-            dark_at: t(19, 0),
-        };
-        assert_eq!(schedule.minutes_until_change(t(6, 0)), Some(60));
-        assert_eq!(schedule.minutes_until_change(t(20, 0)), Some(11 * 60));
-        // Exatamente na troca, a próxima é a outra.
-        assert_eq!(schedule.minutes_until_change(t(7, 0)), Some(12 * 60));
-        assert_eq!(Schedule::System.minutes_until_change(t(7, 0)), None);
     }
 }

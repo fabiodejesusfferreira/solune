@@ -4,4 +4,3 @@
 //! bloqueada) e pergunta aqui o que fazer; quem executa é ele.
 
 pub mod policy;
-pub mod theme;

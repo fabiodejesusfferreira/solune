@@ -49,6 +49,7 @@ unsafe extern "C" {
         data: *const c_char,
     ) -> c_int;
     fn mpv_wait_event(ctx: *mut MpvHandle, timeout: c_double) -> *mut RawEvent;
+    fn mpv_wakeup(ctx: *mut MpvHandle);
 }
 
 const EVENT_NONE: c_int = 0;
@@ -182,7 +183,15 @@ impl Mpv {
         check(code, format!("propriedade {name}={value}"))
     }
 
-    /// Espera o próximo evento. `None` quando o tempo acaba sem evento.
+    /// Acorda quem está em `wait_event`, que então devolve `None`. Sem
+    /// ninguém esperando, a próxima espera volta na hora.
+    pub fn wakeup(&self) {
+        // SAFETY: handle válido; mpv_wakeup pode ser chamado de qualquer thread.
+        unsafe { mpv_wakeup(self.handle) };
+    }
+
+    /// Espera o próximo evento. `None` quando o tempo acaba sem evento. Um
+    /// tempo negativo espera até haver evento ou alguém chamar `wakeup`.
     pub fn wait_event(&self, timeout_secs: f64) -> Option<Event> {
         // SAFETY: handle válido; o evento pertence ao mpv e só é lido até a próxima chamada.
         let event = unsafe { &*mpv_wait_event(self.handle, timeout_secs) };

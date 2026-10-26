@@ -1,5 +1,5 @@
-//! Sinais do sistema para a política de pausa: app em tela cheia, bateria
-//! e tela bloqueada.
+//! Sinais do sistema: app em tela cheia, bateria e tela bloqueada, para a
+//! política de pausa, e o tema claro ou escuro, para a agenda de temas.
 //!
 //! Cada sinal tem o seu observador, que avisa o ator só quando o valor
 //! muda. `None` quer dizer que o sinal não pode ser detectado nesta sessão;
@@ -13,6 +13,8 @@ mod fullscreen_wayland;
 mod fullscreen_x11;
 #[cfg(target_os = "linux")]
 mod locked;
+#[cfg(target_os = "linux")]
+mod theme;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +27,8 @@ pub enum Change {
     Fullscreen(Option<bool>),
     Battery(Option<bool>),
     Locked(Option<bool>),
+    /// O sistema está no tema escuro.
+    Dark(Option<bool>),
 }
 
 /// Quem recebe as mudanças: o ator do player.
@@ -66,6 +70,7 @@ impl Watchers {
         notify(Change::Fullscreen(None));
         notify(Change::Battery(None));
         notify(Change::Locked(None));
+        notify(Change::Dark(None));
     }
 
     #[cfg(target_os = "linux")]
@@ -98,6 +103,10 @@ impl Watchers {
         let n = Arc::clone(&notify);
         self.tasks.push(tokio::spawn(locked::watch(move |v| {
             n(Change::Locked(v));
+        })));
+        let n = Arc::clone(&notify);
+        self.tasks.push(tokio::spawn(theme::watch(move |v| {
+            n(Change::Dark(v));
         })));
     }
 }

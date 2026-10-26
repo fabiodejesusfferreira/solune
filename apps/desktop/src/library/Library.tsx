@@ -1,167 +1,193 @@
 import { Button, Chip, WallpaperCard } from "@solune/ui";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
-import { Film, Pause, Play, Plus, Square, Upload } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Pause, Play, Plus, Square, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { daemon } from "../daemon/api";
 import { ConnectionNotice } from "../daemon/ConnectionNotice";
 import { useDaemon } from "../daemon/store";
-import { useLibrary, videoExtensions } from "./store";
+import { importFiles, useDropZone } from "./actions";
+import { badgeFor, metaFor, Thumb } from "./media";
+import { type LibraryItem, useLibrary } from "./store";
 
-export function Library() {
-  const { t } = useTranslation();
-  const { items, selected, add, select } = useLibrary();
-  const { status, run } = useDaemon();
-  const dragging = useDropZone(add);
+const filters = ["all", "video", "image", "light", "dark"] as const;
+type Filter = (typeof filters)[number];
 
-  async function importVideos() {
-    const paths = await open({
-      multiple: true,
-      filters: [{ name: t("library.filter"), extensions: [...videoExtensions] }],
-    });
-    if (paths) {
-      add(paths);
-    }
-  }
+const matches = (item: LibraryItem, filter: Filter) =>
+  filter === "all" || item.kind === filter || item.theme === filter;
 
+export function Library({ onOpen }: { onOpen: (path: string) => void }) {
+  const { t, i18n } = useTranslation();
+  const items = useLibrary((state) => state.items);
+  const remove = useLibrary((state) => state.remove);
+  const status = useDaemon((state) => state.status);
+  const error = useDaemon((state) => state.error);
+  const dragging = useDropZone();
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+
+  const needle = query.trim().toLocaleLowerCase(i18n.language);
+  const shown = items.filter(
+    (item) =>
+      matches(item, filter) &&
+      (!needle || item.name.toLocaleLowerCase(i18n.language).includes(needle)),
+  );
   const playingPath = status && status.state !== "stopped" ? status.path : null;
+  const label: Record<Filter, string> = {
+    all: t("library.filters.all"),
+    video: t("library.filters.video"),
+    image: t("library.filters.image"),
+    light: t("library.filters.light"),
+    dark: t("library.filters.dark"),
+  };
 
   return (
-    <main className="library" data-dragging={dragging || undefined}>
-      <header className="library__header">
-        <div>
-          <h1 className="text-title">{t("library.title")}</h1>
-          {items.length > 0 ? (
-            <p className="library__count text-caption">
-              {t("library.count", { count: items.length })}
-            </p>
-          ) : null}
+    <main className="page" data-dragging={dragging || undefined}>
+      <header className="page__bar">
+        <h1 className="text-title">{t("library.title")}</h1>
+        <div className="page__tools">
+          <input
+            type="search"
+            className="field"
+            aria-label={t("library.search_label")}
+            placeholder={t("library.search")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button
+            variant="primary"
+            icon={<Plus size={16} />}
+            onClick={() => void importFiles(t("library.filter"))}
+          >
+            {t("library.import")}
+          </Button>
         </div>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={importVideos}>
-          {t("library.import")}
-        </Button>
       </header>
 
-      {items.length === 0 ? (
-        <div className="library__empty">
-          <Upload size={32} aria-hidden="true" />
-          <p className="text-body">{t("library.empty")}</p>
-        </div>
-      ) : (
-        <ul className="library__grid">
-          {items.map((item) => (
-            <li key={item.path}>
-              <WallpaperCard
-                title={item.name}
-                meta={item.name.split(".").pop()?.toUpperCase() ?? ""}
-                art={<Film size={32} aria-hidden="true" className="library__art" />}
-                active={item.path === playingPath}
-                onSelect={() => select(item.path)}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <ConnectionNotice />
+      {error ? (
+        <p role="alert" className="alert-text text-caption">
+          {t(`error.${error}`)}
+        </p>
+      ) : null}
+
+      <NowPlaying onOpen={onOpen} />
+
+      <fieldset className="filters" aria-label={t("library.filters.label")}>
+        {filters.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className="filters__chip"
+            aria-pressed={filter === id}
+            onClick={() => setFilter(id)}
+          >
+            <Chip tone={filter === id ? "sun" : "neutral"}>{label[id]}</Chip>
+          </button>
+        ))}
+        <span className="filters__count text-caption">
+          {t("library.shown", { shown: shown.length, count: items.length })}
+        </span>
+      </fieldset>
+
+      <ul className="grid">
+        {shown.map((item) => (
+          <li key={item.path} className="grid__item">
+            <WallpaperCard
+              title={item.name}
+              meta={metaFor(item, i18n.language)}
+              badge={badgeFor(item) ?? ""}
+              art={<Thumb item={item} />}
+              active={item.path === playingPath}
+              onSelect={() => onOpen(item.path)}
+            />
+            <button
+              type="button"
+              className="grid__remove"
+              aria-label={t("library.delete")}
+              onClick={() => remove(item.path)}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ul>
 
       {dragging ? (
-        <div className="library__drop text-heading" aria-hidden="true">
+        <div className="drop text-heading" aria-hidden="true">
           {t("library.drop")}
         </div>
       ) : null}
-
-      <PlayerBar
-        selected={selected}
-        onApply={(path) => run(() => daemon.play(path))}
-        onPause={() => run(daemon.pause)}
-        onResume={() => run(daemon.resume)}
-        onStop={() => run(daemon.stop)}
-      />
     </main>
   );
 }
 
-interface PlayerBarProps {
-  selected: string | null;
-  onApply: (path: string) => void;
-  onPause: () => void;
-  onResume: () => void;
-  onStop: () => void;
-}
-
-function PlayerBar({ selected, onApply, onPause, onResume, onStop }: PlayerBarProps) {
-  const { t } = useTranslation();
-  const { connection, status, error } = useDaemon();
-  const state = status?.state ?? "stopped";
+/** O wallpaper em uso, com os controles do player. */
+function NowPlaying({ onOpen }: { onOpen: (path: string) => void }) {
+  const { t, i18n } = useTranslation();
+  const { status, connection, run } = useDaemon();
+  const item = useLibrary((state) => state.items.find((i) => i.path === status?.path));
+  const carousel = useLibrary((state) => state.carousel.on);
+  if (!status || status.state === "stopped" || !status.path) {
+    return null;
+  }
   const online = connection === "online";
-
+  const playing = status.state === "playing";
   return (
-    <footer className="player">
-      <div className="player__status">
-        {connection === "online" ? (
-          <Chip tone={state === "playing" ? "sun" : "neutral"}>
-            {state === "playing"
-              ? t("player.state.playing")
-              : state === "paused"
-                ? t("player.state.paused")
-                : t("player.state.stopped")}
-          </Chip>
-        ) : null}
-        {state === "paused" && status?.pause_reason ? (
-          <span className="text-caption">{t(`pause_reason.${status.pause_reason}`)}</span>
-        ) : null}
-        <ConnectionNotice />
-        {error ? (
-          <p role="alert" className="alert-text text-caption">
-            {t(`error.${error}`)}
-          </p>
-        ) : null}
+    <section className="now panel" aria-label={t("now.title")}>
+      <div className="now__art">
+        <Thumb item={item} />
       </div>
-      <div className="player__actions">
-        {state === "playing" ? (
-          <Button icon={<Pause size={16} />} disabled={!online} onClick={onPause}>
+      <div className="now__info">
+        <div className="chips">
+          <Chip tone={playing ? "sun" : "neutral"} icon={playing ? "●" : "Ⅱ"}>
+            {playing ? t("player.state.playing") : t("player.state.paused")}
+          </Chip>
+          <Chip>{t("monitors.all")}</Chip>
+          {carousel ? <Chip>{t("monitors.carousel")}</Chip> : null}
+        </div>
+        <h2 className="text-heading">{item?.name ?? status.path}</h2>
+        <p className="text-body muted">
+          {!playing && status.pause_reason
+            ? t(`pause_reason.${status.pause_reason}`)
+            : item
+              ? metaFor(item, i18n.language)
+              : null}
+        </p>
+      </div>
+      <div className="now__actions">
+        {playing ? (
+          <Button
+            variant="primary"
+            icon={<Pause size={16} />}
+            disabled={!online}
+            onClick={() => run(daemon.pause)}
+          >
             {t("player.pause")}
           </Button>
-        ) : null}
-        {state === "paused" ? (
-          <Button icon={<Play size={16} />} disabled={!online} onClick={onResume}>
+        ) : (
+          <Button
+            variant="primary"
+            icon={<Play size={16} />}
+            disabled={!online}
+            onClick={() => run(daemon.resume)}
+          >
             {t("player.resume")}
           </Button>
-        ) : null}
-        {state !== "stopped" ? (
-          <Button variant="ghost" icon={<Square size={16} />} disabled={!online} onClick={onStop}>
-            {t("player.stop")}
+        )}
+        {item ? (
+          <Button variant="ghost" onClick={() => onOpen(item.path)}>
+            {t("library.details")}
           </Button>
         ) : null}
         <Button
-          variant="sun"
-          disabled={selected === null || connection === "incompatible"}
-          onClick={() => selected && onApply(selected)}
+          variant="ghost"
+          icon={<Square size={16} />}
+          disabled={!online}
+          onClick={() => run(daemon.stop)}
         >
-          {t("player.apply")}
+          {t("player.stop")}
         </Button>
       </div>
-    </footer>
+    </section>
   );
-}
-
-/** Arquivos soltos na janela entram na biblioteca. Devolve se há algo sendo arrastado. */
-function useDropZone(add: (paths: readonly string[]) => number): boolean {
-  const [dragging, setDragging] = useState(false);
-  useEffect(() => {
-    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
-      if (payload.type === "enter" || payload.type === "over") {
-        setDragging(true);
-      } else {
-        setDragging(false);
-        if (payload.type === "drop") {
-          add(payload.paths);
-        }
-      }
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [add]);
-  return dragging;
 }

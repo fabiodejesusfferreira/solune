@@ -12,9 +12,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::theme::{Schedule, Theme};
+
 /// Versão do protocolo. Muda quando uma mensagem muda de forma
 /// incompatível; cliente e daemon de versões diferentes não conversam.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Mensagem do cliente para o daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +34,13 @@ pub enum Command {
     Play {
         path: PathBuf,
     },
+    /// Toca uma lista: um item só, ou um carrossel. Cada item pode ter um
+    /// par para o tema escuro.
+    PlayList {
+        list: Playlist,
+    },
+    /// Pula para o próximo item do carrossel.
+    Next,
     /// Pausa por pedido do usuário.
     Pause,
     /// Retoma depois de uma pausa do usuário.
@@ -49,6 +58,45 @@ pub enum Command {
     Usage,
     /// Encerra o daemon.
     Shutdown,
+}
+
+/// O que o daemon toca. Com mais de um item, troca a cada `every_minutes`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Playlist {
+    pub items: Vec<Item>,
+    /// Minutos entre as trocas. Zero troca só quando o daemon inicia (no login).
+    #[serde(default)]
+    pub every_minutes: u32,
+    #[serde(default)]
+    pub shuffle: bool,
+}
+
+impl Playlist {
+    /// Um arquivo só, igual nos dois temas.
+    pub fn single(path: PathBuf) -> Self {
+        Self {
+            items: vec![Item { path, dark: None }],
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    /// O arquivo do tema claro, ou dos dois temas quando não há `dark`.
+    pub path: PathBuf,
+    #[serde(default)]
+    pub dark: Option<PathBuf>,
+}
+
+impl Item {
+    /// O arquivo que vale para o tema.
+    pub fn for_theme(&self, theme: Theme) -> &std::path::Path {
+        match (theme, &self.dark) {
+            (Theme::Dark, Some(dark)) => dark,
+            _ => &self.path,
+        }
+    }
 }
 
 /// Mensagem do daemon para o cliente.
@@ -100,6 +148,9 @@ pub struct Status {
     pub pause_reason: Option<PauseReason>,
     /// Decodificação por hardware em uso, como o mpv informa (`vaapi`, `d3d11va`, `no`).
     pub hwdec: Option<String>,
+    /// O tema que vale agora, pela agenda das preferências.
+    #[serde(default)]
+    pub theme: Theme,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +196,13 @@ pub struct Settings {
     /// Depois de 5 minutos pausado, troca o vídeo pela última imagem e
     /// libera o decodificador e a memória de vídeo.
     pub release_when_paused: bool,
+    /// Quando usar o arquivo do tema claro ou do escuro.
+    pub schedule: Schedule,
+    /// Toca o áudio do vídeo. Desligado, o decodificador de áudio nem abre.
+    pub sound: bool,
+    /// Mostra os ícones da área de trabalho com o wallpaper ativo. Desligado,
+    /// o daemon os esconde enquanto toca e os devolve ao parar.
+    pub show_desktop_icons: bool,
 }
 
 impl Default for Settings {
@@ -155,6 +213,9 @@ impl Default for Settings {
             pause_on_battery: true,
             pause_on_lock: true,
             release_when_paused: true,
+            schedule: Schedule::System,
+            sound: false,
+            show_desktop_icons: true,
         }
     }
 }
@@ -167,6 +228,8 @@ pub struct Conditions {
     pub fullscreen: Option<bool>,
     pub on_battery: Option<bool>,
     pub screen_locked: Option<bool>,
+    /// O sistema está no tema escuro.
+    pub dark: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,12 +384,36 @@ mod tests {
     }
 
     #[test]
+    fn item_escolhe_o_arquivo_do_tema() {
+        let item = Item {
+            path: "/claro.png".into(),
+            dark: Some("/escuro.mp4".into()),
+        };
+        assert_eq!(
+            item.for_theme(Theme::Light),
+            std::path::Path::new("/claro.png")
+        );
+        assert_eq!(
+            item.for_theme(Theme::Dark),
+            std::path::Path::new("/escuro.mp4")
+        );
+        let only = Playlist::single("/so.mp4".into());
+        assert_eq!(
+            only.items[0].for_theme(Theme::Dark),
+            std::path::Path::new("/so.mp4")
+        );
+        let list: Playlist = serde_json::from_str(r#"{"items":[{"path":"/a.mp4"}]}"#).unwrap();
+        assert_eq!(list, Playlist::single("/a.mp4".into()));
+    }
+
+    #[test]
     fn status_e_eventos_vao_e_voltam() {
         let status = Status {
             state: PlayerState::Paused,
             path: Some("/videos/praia.mp4".into()),
             pause_reason: Some(PauseReason::Battery),
             hwdec: Some("vaapi".into()),
+            theme: Theme::Dark,
         };
         roundtrip(&ServerMessage::Response {
             id: 1,

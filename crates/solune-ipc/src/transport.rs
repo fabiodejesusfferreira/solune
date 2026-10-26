@@ -6,8 +6,9 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use interprocess::local_socket::tokio::{Listener as RawListener, Stream};
@@ -95,6 +96,61 @@ impl From<OsString> for Address {
     }
 }
 
+/// Cria a pasta do socket com permissão só do usuário. Uma pasta que já
+/// existe fica como está: com `SOLUNE_SOCKET` ela pode ser a `/tmp`.
+#[cfg(unix)]
+fn private_dir(socket: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    if dir.exists() {
+        return Ok(());
+    }
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+/// O direito de ser o daemon deste endereço. Vale enquanto o valor viver; o
+/// sistema o solta sozinho se o processo cair.
+#[derive(Debug)]
+pub struct InstanceLock {
+    _file: Option<File>,
+}
+
+/// Tenta ser o único daemon do endereço: pega um lock exclusivo num arquivo
+/// ao lado do socket. `None` quando outro daemon já o tem. Diferente de
+/// conectar para ver se alguém responde, não deixa dois daemons que sobem ao
+/// mesmo tempo passarem juntos.
+pub fn lock_instance(address: &Address) -> io::Result<Option<InstanceLock>> {
+    #[cfg(unix)]
+    let Address::Path(socket) = address;
+    #[cfg(windows)]
+    let Address::Path(socket) = address else {
+        // O named pipe só aceita uma primeira instância; não precisa de arquivo.
+        return Ok(Some(InstanceLock { _file: None }));
+    };
+    #[cfg(windows)]
+    if socket.to_string_lossy().starts_with(r"\\.\pipe\") {
+        return Ok(Some(InstanceLock { _file: None }));
+    }
+    #[cfg(unix)]
+    private_dir(socket)?;
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(socket.with_extension("lock"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(InstanceLock { _file: Some(file) })),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(e)) => Err(e),
+    }
+}
+
 // ---------------------------------------------------------------- servidor
 
 /// Socket do daemon, à espera de clientes.
@@ -108,15 +164,9 @@ impl Listener {
     /// recupera um socket que sobrou de um daemon que caiu.
     pub fn bind(address: &Address) -> io::Result<Self> {
         #[cfg(unix)]
-        if let Address::Path(path) = address
-            && let Some(dir) = path.parent()
         {
-            use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)?;
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+            let Address::Path(path) = address;
+            private_dir(path)?;
         }
         let inner = ListenerOptions::new()
             .name(address.name()?)
@@ -132,7 +182,8 @@ impl Listener {
         let stream = self.inner.accept().await?;
         let (read, mut write) = tokio::io::split(stream);
         let mut read = BufReader::new(read);
-        let hello = tokio::time::timeout(HANDSHAKE_TIMEOUT, read_message(&mut read))
+        let mut line = Vec::new();
+        let hello = tokio::time::timeout(HANDSHAKE_TIMEOUT, read_message(&mut read, &mut line))
             .await
             .map_err(|_| ServerError::HandshakeTimeout)??;
         match hello {
@@ -142,7 +193,7 @@ impl Listener {
                     daemon_version: daemon_version.to_owned(),
                 };
                 write_message(&mut write, &welcome).await?;
-                Ok(ServerConnection { read, write })
+                Ok(ServerConnection { read, write, line })
             }
             Some(ClientMessage::Hello { protocol }) => {
                 let rejected = ServerMessage::Rejected {
@@ -176,6 +227,7 @@ pub enum ServerError {
 pub struct ServerConnection {
     read: BufReader<ReadHalf<Stream>>,
     write: WriteHalf<Stream>,
+    line: Vec<u8>,
 }
 
 impl ServerConnection {
@@ -183,7 +235,10 @@ impl ServerConnection {
     /// diferentes.
     pub fn into_split(self) -> (ServerReader, ServerWriter) {
         (
-            ServerReader { read: self.read },
+            ServerReader {
+                read: self.read,
+                line: self.line,
+            },
             ServerWriter { write: self.write },
         )
     }
@@ -192,13 +247,17 @@ impl ServerConnection {
 #[derive(Debug)]
 pub struct ServerReader {
     read: BufReader<ReadHalf<Stream>>,
+    /// O começo da mensagem em andamento, para `next_request` poder ser
+    /// cancelado (num `select!`) sem perder bytes.
+    line: Vec<u8>,
 }
 
 impl ServerReader {
-    /// O próximo pedido do cliente. `None` quando ele desconecta.
+    /// O próximo pedido do cliente. `None` quando ele desconecta. Pode ser
+    /// cancelado e chamado de novo sem perder o que já chegou.
     pub async fn next_request(&mut self) -> Result<Option<(u64, Command)>, CodecError> {
         loop {
-            match read_message(&mut self.read).await? {
+            match read_message(&mut self.read, &mut self.line).await? {
                 Some(ClientMessage::Request { id, command }) => return Ok(Some((id, command))),
                 // Um hello repetido não muda nada.
                 Some(ClientMessage::Hello { .. }) => {}
@@ -274,7 +333,8 @@ impl Client {
             },
         )
         .await?;
-        let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, read_message(&mut read))
+        let mut line = Vec::new();
+        let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, read_message(&mut read, &mut line))
             .await
             .map_err(|_| ClientError::HandshakeTimeout)??;
         let daemon_version = match reply {
@@ -293,7 +353,7 @@ impl Client {
 
         let (requests, inbox) = mpsc::channel(32);
         let (events, _) = broadcast::channel(64);
-        tokio::spawn(run_client(read, write, inbox, events.clone()));
+        tokio::spawn(run_client(read, line, write, inbox, events.clone()));
         Ok(Self {
             requests,
             events,
@@ -328,10 +388,17 @@ impl Client {
     pub async fn closed(&self) {
         self.requests.closed().await;
     }
+
+    /// A conexão com o daemon já caiu. Quem guarda um `Client` por muito
+    /// tempo troca por um novo quando isto vale.
+    pub fn is_closed(&self) -> bool {
+        self.requests.is_closed()
+    }
 }
 
 async fn run_client(
     mut read: BufReader<ReadHalf<Stream>>,
+    mut line: Vec<u8>,
     mut write: WriteHalf<Stream>,
     mut inbox: mpsc::Receiver<(Command, Pending)>,
     events: broadcast::Sender<Event>,
@@ -350,7 +417,7 @@ async fn run_client(
                 }
                 pending.insert(id, reply);
             }
-            message = read_message::<ServerMessage, _>(&mut read) => {
+            message = read_message::<ServerMessage, _>(&mut read, &mut line) => {
                 match message {
                     Ok(Some(ServerMessage::Response { id, outcome })) => {
                         if let Some(reply) = pending.remove(&id) {
@@ -367,6 +434,9 @@ async fn run_client(
             }
         }
     }
+    // Fecha a caixa de entrada antes dos pedidos pendentes caírem: quem
+    // recebe `Disconnected` já encontra `is_closed()` verdadeiro.
+    inbox.close();
     // Os pedidos pendentes caem com Disconnected quando os senders saem.
 }
 
@@ -464,10 +534,34 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), client.closed())
             .await
             .expect("closed termina");
+        assert!(client.is_closed());
         assert!(matches!(
             client.request(Command::Status).await,
             Err(ClientError::Disconnected)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn so_um_daemon_pega_o_lock_e_o_proximo_pega_ao_soltar() {
+        let dir = tempfile::tempdir().unwrap();
+        let address = temp_address(&dir);
+        let first = lock_instance(&address).unwrap().expect("o primeiro pega");
+        assert!(lock_instance(&address).unwrap().is_none());
+        drop(first);
+        assert!(lock_instance(&address).unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pasta_que_ja_existe_nao_muda_de_permissao() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let address = Address::Path(dir.path().join("daemon.sock"));
+        let _listener = Listener::bind(&address).unwrap();
+        let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
     }
 
     #[tokio::test]
@@ -490,7 +584,7 @@ mod tests {
         write_message(&mut write, &ClientMessage::Hello { protocol: 999 })
             .await
             .unwrap();
-        let reply: Option<ServerMessage> = read_message(&mut read).await.unwrap();
+        let reply: Option<ServerMessage> = read_message(&mut read, &mut Vec::new()).await.unwrap();
         assert_eq!(
             reply,
             Some(ServerMessage::Rejected {

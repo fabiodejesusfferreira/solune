@@ -3,18 +3,21 @@
     "hwdec": "vaapi",
     "path": "/home/ana/Vídeos/praia.mp4",
     "pause_reason": "battery",
-    "state": "paused"
+    "state": "paused",
+    "theme": "dark"
   },
   "playing": {
     "hwdec": "vaapi",
     "path": "/home/ana/Vídeos/praia.mp4",
     "pause_reason": null,
-    "state": "playing"
+    "state": "playing",
+    "theme": "dark"
   },
   "stopped": {
     "hwdec": null,
     "path": null,
     "pause_reason": null,
-    "state": "stopped"
+    "state": "stopped",
+    "theme": "light"
   }
 }

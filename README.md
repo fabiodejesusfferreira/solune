@@ -38,8 +38,8 @@ O Solune tem duas partes. O daemon (`solune-daemon`) toca o vídeo com o libmpv,
 | Caminho | O que é |
 | --- | --- |
 | `apps/desktop/` | App Tauri: interface React (`src/`) e lado nativo com a bandeja e a conexão com o daemon (`src-tauri/`) |
-| `crates/solune-ipc/` | Protocolo entre o app e o daemon: as mensagens e o socket local |
-| `crates/solune-core/` | Lógica que não usa a GPU: regras de pausa e agenda do tema claro e escuro |
+| `crates/solune-ipc/` | Protocolo entre o app e o daemon: as mensagens, o socket local e a agenda do tema claro e escuro |
+| `crates/solune-core/` | Lógica que não usa a GPU: regras de pausa |
 | `crates/solune-daemon/` | Daemon: libmpv, janela de papel de parede e servidor do socket |
 | `packages/tokens/` | Tokens do design system (`tokens.json`), que geram CSS e TS |
 | `packages/ui/` | Componentes React do design system |
@@ -118,7 +118,7 @@ O daemon escolhe onde desenhar pela sessão gráfica:
 | X11 (`DISPLAY`) | Janela do tipo área de trabalho, como no Cinnamon do Linux Mint | Testado no Linux Mint com Cinnamon: ícones da área de trabalho por cima, VA-API em uso |
 | Windows | WorkerW | Ainda não implementado: `play` responde `surface_unavailable` |
 
-`--hwdec` repassa o modo de decodificação ao mpv (padrão `auto-safe`; `no` desliga a aceleração). `--headless` toca sem tela (`vo=null`), para testes. O socket fica em `$XDG_RUNTIME_DIR/solune/daemon.sock`, e `SOLUNE_SOCKET` troca o caminho.
+`--hwdec` repassa o modo de decodificação ao mpv (padrão `auto-safe`; `no` desliga a aceleração). `--headless` toca sem tela (`vo=null`), para testes. O socket fica em `$XDG_RUNTIME_DIR/solune/daemon.sock`, e `SOLUNE_SOCKET` troca o caminho. Ao lado dele fica o `daemon.lock`, que garante um daemon só por usuário. No Linux, o daemon iniciado pelo app herda o stderr do app, onde saem os logs (`RUST_LOG` ajusta o nível); no Windows, vão para `%APPDATA%\Solune\daemon.log`.
 
 No Linux, o libwayland, o libX11 e o libEGL são carregados quando o daemon roda. Por isso o daemon compila sem nenhum pacote -dev, só com o `libmpv2`.
 
@@ -136,7 +136,7 @@ O daemon pausa sozinho quando ninguém vê o papel de parede. Cada regra pode se
 
 Depois de 5 minutos pausado (`release_when_paused`), o daemon libera o decodificador: guarda o quadro atual na GPU, fecha o arquivo e desliga o render do libmpv, o que solta o decodificador e a memória de vídeo que ele usava. A tela continua com o mesmo quadro. Ao retomar, o daemon religa o render e abre o vídeo na mesma posição. `SOLUNE_RELEASE_AFTER_SECS` troca os 5 minutos, para testes e medições.
 
-As regras e o último papel de parede ficam em `~/.config/solune` (`settings.json` e `state.json`). No Windows, em `%APPDATA%\Solune`. `SOLUNE_CONFIG_DIR` troca a pasta. Ao iniciar, o daemon volta a tocar o último papel de parede. As decisões estão em [`docs/decisions/0004-politica-de-pausa.md`](docs/decisions/0004-politica-de-pausa.md).
+As regras e o último papel de parede ficam em `~/.config/solune` (`settings.json` e `state.json`). No Windows, em `%APPDATA%\Solune`. `SOLUNE_CONFIG_DIR` troca a pasta. Ao iniciar, o daemon volta a tocar o último papel de parede. Num carrossel, um arquivo que não toca ou que sumiu (um disco que ainda não montou) não apaga a lista: o daemon pula para o próximo item. As decisões estão em [`docs/decisions/0004-politica-de-pausa.md`](docs/decisions/0004-politica-de-pausa.md).
 
 Limitações conhecidas:
 

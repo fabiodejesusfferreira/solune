@@ -5,7 +5,7 @@ import {
   commandErrorCode,
   type DaemonEvent,
   type Policy,
-  type SettingName,
+  type Settings,
   type Status,
 } from "./protocol";
 
@@ -24,7 +24,7 @@ interface DaemonState {
   /** Roda um comando e guarda o erro, se houver. O status novo chega por evento. */
   run: (command: () => Promise<void>) => Promise<void>;
   /** Muda uma preferência na hora. Se o daemon recusar, volta como estava. */
-  setSetting: (name: SettingName, value: boolean) => Promise<void>;
+  setSetting: <K extends keyof Settings>(name: K, value: Settings[K]) => Promise<void>;
   apply: (event: DaemonEvent) => void;
 }
 

@@ -22,29 +22,51 @@ export const errorCodes = [
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 
+export const themes = ["light", "dark"] as const;
+export type Theme = (typeof themes)[number];
+
 export interface Status {
   state: PlayerState;
   path: string | null;
   pause_reason: PauseReason | null;
   /** Decodificação por hardware em uso, como o mpv informa. */
   hwdec: string | null;
+  /** O tema que vale agora, pela agenda. */
+  theme: Theme;
 }
 
-/** Preferências de pausa. Cada uma tem texto em `rules.<nome>`. */
+/** Quando usar o arquivo do tema claro ou do escuro. Horários em minutos desde a meia-noite. */
+export type Schedule =
+  | { mode: "system" }
+  | { mode: "fixed"; theme: Theme }
+  | { mode: "times"; light_at: number; dark_at: number };
+
+/** O que tocar: um item, ou um carrossel que troca a cada `every_minutes` (0: a cada login). */
+export interface Playlist {
+  items: { path: string; dark: string | null }[];
+  every_minutes: number;
+  shuffle: boolean;
+}
+
+/** Preferências que ligam e desligam. As de pausa têm texto em `rules.<nome>`. */
 export const settingNames = [
   "pause_on_fullscreen",
   "pause_on_battery",
   "pause_on_lock",
   "release_when_paused",
+  "sound",
+  "show_desktop_icons",
 ] as const;
 export type SettingName = (typeof settingNames)[number];
-export type Settings = Record<SettingName, boolean>;
+export type Settings = Record<SettingName, boolean> & { schedule: Schedule };
 
 /** O que o daemon detectou do sistema. `null` quando não dá para detectar nesta sessão. */
 export interface Conditions {
   fullscreen: boolean | null;
   on_battery: boolean | null;
   screen_locked: boolean | null;
+  /** O sistema está no tema escuro. */
+  dark: boolean | null;
 }
 
 export interface Policy {
@@ -95,6 +117,26 @@ function nullableBoolean(value: unknown): value is boolean | null {
   return value === null || typeof value === "boolean";
 }
 
+function isMinute(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) < 24 * 60;
+}
+
+function parseSchedule(value: unknown): Schedule | null {
+  if (!isObject(value)) {
+    return null;
+  }
+  if (value.mode === "system") {
+    return { mode: "system" };
+  }
+  if (value.mode === "fixed" && oneOf(themes, value.theme)) {
+    return { mode: "fixed", theme: value.theme };
+  }
+  if (value.mode === "times" && isMinute(value.light_at) && isMinute(value.dark_at)) {
+    return { mode: "times", light_at: value.light_at, dark_at: value.dark_at };
+  }
+  return null;
+}
+
 function nullableCount(value: unknown): value is number | null {
   return value === null || (Number.isInteger(value) && (value as number) >= 0);
 }
@@ -105,13 +147,15 @@ export function parseStatus(value: unknown): Status {
     oneOf(playerStates, value.state) &&
     nullableString(value.path) &&
     (value.pause_reason === null || oneOf(pauseReasons, value.pause_reason)) &&
-    nullableString(value.hwdec)
+    nullableString(value.hwdec) &&
+    oneOf(themes, value.theme)
   ) {
     return {
       state: value.state,
       path: value.path,
       pause_reason: value.pause_reason,
       hwdec: value.hwdec,
+      theme: value.theme,
     };
   }
   throw new ProtocolError(`status inválido: ${JSON.stringify(value)}`);
@@ -120,20 +164,27 @@ export function parseStatus(value: unknown): Status {
 export function parsePolicy(value: unknown): Policy {
   if (isObject(value) && isObject(value.settings) && isObject(value.conditions)) {
     const { settings, conditions } = value;
+    const schedule = parseSchedule(settings.schedule);
     if (
+      schedule &&
       settingNames.every((name) => typeof settings[name] === "boolean") &&
       nullableBoolean(conditions.fullscreen) &&
       nullableBoolean(conditions.on_battery) &&
-      nullableBoolean(conditions.screen_locked)
+      nullableBoolean(conditions.screen_locked) &&
+      nullableBoolean(conditions.dark)
     ) {
       return {
-        settings: Object.fromEntries(
-          settingNames.map((name) => [name, settings[name] as boolean]),
-        ) as Settings,
+        settings: {
+          ...(Object.fromEntries(
+            settingNames.map((name) => [name, settings[name] as boolean]),
+          ) as Record<SettingName, boolean>),
+          schedule,
+        },
         conditions: {
           fullscreen: conditions.fullscreen,
           on_battery: conditions.on_battery,
           screen_locked: conditions.screen_locked,
+          dark: conditions.dark,
         },
       };
     }

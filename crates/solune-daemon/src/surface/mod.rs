@@ -89,6 +89,10 @@ pub struct Surface {
     control: Option<smithay_client_toolkit::reexports::calloop::channel::Sender<Control>>,
     #[cfg(target_os = "linux")]
     join: Option<JoinHandle<()>>,
+    /// A thread avisa aqui quando termina, para `shutdown` não esperar sem
+    /// limite por uma thread presa.
+    #[cfg(target_os = "linux")]
+    done: Option<mpsc::Receiver<()>>,
 }
 
 /// Quanto esperar a superfície ficar pronta (EGL e render criados).
@@ -98,6 +102,12 @@ const READY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Quanto esperar a superfície congelar ou descongelar o render.
 #[cfg(target_os = "linux")]
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Quanto esperar a thread da superfície terminar depois do pedido de parar.
+/// Presa no compositor ou no driver, ela fica para trás em vez de prender o
+/// daemon.
+#[cfg(target_os = "linux")]
+const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Avisa uma vez se a superfície ficou pronta ou falhou ao começar. As
 /// cópias dividem o mesmo aviso: só o primeiro `ok` ou `finish` vale.
@@ -143,6 +153,7 @@ impl Surface {
 
             let (control_tx, control_rx) = channel::channel::<Control>();
             let (ready_tx, ready_rx) = mpsc::channel();
+            let (done_tx, done_rx) = mpsc::channel();
             let join = thread::Builder::new()
                 .name(format!("surface-{}", kind.name()))
                 .spawn(move || {
@@ -157,12 +168,14 @@ impl Surface {
                         Kind::X11 => x11::run(player, hwdec_off, ready.clone(), control_rx),
                     };
                     ready.finish(result.map_err(|e| e.to_string()), &ended);
+                    let _ = done_tx.send(());
                 })
                 .map_err(|e| format!("não foi possível criar a thread da superfície: {e}"))?;
 
             let mut surface = Self {
                 control: Some(control_tx),
                 join: Some(join),
+                done: Some(done_rx),
             };
             match ready_rx.recv_timeout(READY_TIMEOUT) {
                 Ok(Ok(())) => Ok(surface),
@@ -225,16 +238,26 @@ impl Surface {
             .map_err(|_| "a superfície não respondeu".to_owned())?
     }
 
-    /// Para a superfície e espera a thread terminar. O papel de parede do
-    /// sistema volta a aparecer.
+    /// Para a superfície e espera a thread terminar, por até `STOP_TIMEOUT`.
+    /// O papel de parede do sistema volta a aparecer.
     pub fn shutdown(&mut self) {
         #[cfg(target_os = "linux")]
         {
             if let Some(control) = self.control.take() {
                 let _ = control.send(Control::Stop);
             }
-            if let Some(join) = self.join.take() {
-                let _ = join.join();
+            let (Some(join), Some(done)) = (self.join.take(), self.done.take()) else {
+                return;
+            };
+            // `Disconnected` é a thread que terminou sem avisar (um pânico):
+            // o join volta na hora. Só o tempo esgotado deixa a thread solta.
+            match done.recv_timeout(STOP_TIMEOUT) {
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    tracing::error!("a thread da superfície não parou; seguindo sem ela");
+                }
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = join.join();
+                }
             }
         }
     }

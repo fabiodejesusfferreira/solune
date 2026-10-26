@@ -6,16 +6,18 @@
 //!
 //! ```text
 //! solune-daemon [--headless] [--hwdec MODO]
-//! solune-daemon play <arquivo> | pause | resume | stop | status | quit
+//! solune-daemon play <arquivo> | next | pause | resume | stop | status | quit
 //! solune-daemon policy | usage | set <preferência> on|off
 //! ```
 
 mod config;
+mod icons;
 mod mpv;
 mod player;
 #[cfg(target_os = "linux")]
 mod render;
 mod server;
+mod show;
 mod signals;
 mod surface;
 mod usage;
@@ -24,7 +26,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use solune_ipc::transport::{Address, Client, ClientError, Listener};
+use solune_ipc::transport::{Address, Client, ClientError, Listener, lock_instance};
 use solune_ipc::{Command, PlayerState, Policy, Reply, Status, Usage};
 use tokio::sync::{Notify, broadcast, mpsc};
 use tracing_subscriber::EnvFilter;
@@ -32,12 +34,18 @@ use tracing_subscriber::EnvFilter;
 use crate::config::Store;
 use crate::player::{Config, Msg, Output, Player};
 
+/// Quanto esperar o player encerrar (superfície e libmpv) ao sair.
+const ACTOR_QUIT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Quanto esperar as threads do runtime depois que o trabalho acabou.
+const RUNTIME_QUIT_TIMEOUT: Duration = Duration::from_secs(2);
+
 const USAGE: &str = "\
 uso: solune-daemon [--headless] [--hwdec MODO]
      solune-daemon play <arquivo> | pause | resume | stop | status | quit
      solune-daemon policy | usage | set <preferência> on|off
 
-preferências: pause_on_fullscreen, pause_on_battery, pause_on_lock, release_when_paused";
+preferências: pause_on_fullscreen, pause_on_battery, pause_on_lock, release_when_paused, sound, show_desktop_icons";
 
 #[derive(Debug)]
 enum Request {
@@ -71,6 +79,7 @@ fn parse_args() -> Result<Mode, String> {
         "play" => Some(Command::Play {
             path: args.next().ok_or("play precisa de um arquivo")?.into(),
         }),
+        "next" => Some(Command::Next),
         "pause" => Some(Command::Pause),
         "resume" => Some(Command::Resume),
         "stop" => Some(Command::Stop),
@@ -144,6 +153,9 @@ fn main() -> ExitCode {
             Mode::Client(command) => client(command).await,
         }
     });
+    // Largar o runtime espera as threads dele; uma presa dentro do libmpv ou
+    // do driver deixaria o processo vivo para sempre.
+    runtime.shutdown_timeout(RUNTIME_QUIT_TIMEOUT);
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -155,7 +167,14 @@ fn main() -> ExitCode {
 
 async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let address = Address::default_for_user()?;
-    // Só um daemon por usuário: se outro responde, este sai sem mexer nele.
+    // Só um daemon por usuário. O lock fica com o processo até o fim e vence
+    // a corrida de dois daemons que sobem ao mesmo tempo.
+    let Some(_instance) = lock_instance(&address)? else {
+        println!("o daemon já está rodando em {address}");
+        return Ok(());
+    };
+    // Um daemon de antes do lock não o tem: se ele responde, este sai sem
+    // mexer nele.
     if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_secs(2), Client::connect(&address)).await
     {
         println!("o daemon já está rodando em {address}");
@@ -187,7 +206,14 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     server.abort();
     let _ = server.await;
     let _ = inbox_tx.send(Msg::Quit);
-    let _ = actor.await;
+    // Uma superfície travada no compositor ou no driver não pode prender o
+    // daemon: passado o prazo, ele sai assim mesmo.
+    if tokio::time::timeout(ACTOR_QUIT_TIMEOUT, actor)
+        .await
+        .is_err()
+    {
+        tracing::error!("o player não encerrou a tempo; saindo assim mesmo");
+    }
     Ok(())
 }
 
@@ -222,6 +248,8 @@ async fn client(request: Request) -> Result<(), Box<dyn std::error::Error>> {
                 "pause_on_battery" => &mut settings.pause_on_battery,
                 "pause_on_lock" => &mut settings.pause_on_lock,
                 "release_when_paused" => &mut settings.release_when_paused,
+                "sound" => &mut settings.sound,
+                "show_desktop_icons" => &mut settings.show_desktop_icons,
                 _ => return Err(format!("preferência desconhecida: {name}\n{USAGE}").into()),
             };
             *field = on;
@@ -264,6 +292,7 @@ fn print_status(status: &Status) {
     if let Some(hwdec) = &status.hwdec {
         println!("hwdec em uso: {hwdec}");
     }
+    println!("tema: {:?}", status.theme);
 }
 
 fn print_policy(policy: &Policy) {
@@ -279,6 +308,10 @@ fn print_policy(policy: &Policy) {
         "liberar o decodificador após a pausa longa: {}",
         on(s.release_when_paused)
     );
+    println!(
+        "mostrar ícones da área de trabalho: {}",
+        on(s.show_desktop_icons)
+    );
     let detected = |v: Option<bool>| match v {
         None => "não detectado",
         Some(true) => "sim",
@@ -288,6 +321,7 @@ fn print_policy(policy: &Policy) {
     println!("agora, app em tela cheia: {}", detected(c.fullscreen));
     println!("agora, na bateria: {}", detected(c.on_battery));
     println!("agora, tela bloqueada: {}", detected(c.screen_locked));
+    println!("agora, sistema no tema escuro: {}", detected(c.dark));
 }
 
 fn print_usage(usage: &Usage) {

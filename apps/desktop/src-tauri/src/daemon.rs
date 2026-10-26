@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use solune_ipc::transport::{Address, Client, ClientError};
-use solune_ipc::{Command, Policy, Reply, Settings, Status, Usage};
+use solune_ipc::{Command, Event, Playlist, Policy, Reply, Settings, Status, Usage};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, broadcast};
 
@@ -35,6 +35,8 @@ pub struct Daemon {
     client: Mutex<Option<Client>>,
     /// O app está saindo: nenhum comando inicia o daemon de novo.
     quitting: AtomicBool,
+    /// Já tentou trocar um daemon de versão antiga nesta execução do app.
+    replaced: AtomicBool,
 }
 
 /// Erro como a interface recebe. O código tem texto em `error.<código>`,
@@ -103,12 +105,17 @@ pub async fn daemon_usage(
 }
 
 #[tauri::command]
-pub async fn daemon_play(
+pub async fn daemon_play_list(
     app: AppHandle,
     daemon: State<'_, Daemon>,
-    path: PathBuf,
+    list: Playlist,
 ) -> Result<(), CommandError> {
-    daemon.done(&app, Command::Play { path }).await
+    daemon.done(&app, Command::PlayList { list }).await
+}
+
+#[tauri::command]
+pub async fn daemon_next(app: AppHandle, daemon: State<'_, Daemon>) -> Result<(), CommandError> {
+    daemon.done(&app, Command::Next).await
 }
 
 #[tauri::command]
@@ -133,14 +140,15 @@ impl Daemon {
     }
 
     /// Manda o pedido. Se a conexão antiga tinha caído (o daemon reiniciou,
-    /// por exemplo), reconecta uma vez e repete.
-    async fn request(&self, app: &AppHandle, command: Command) -> Result<Reply, ClientError> {
+    /// por exemplo), `client` abre outra e o pedido se repete uma vez.
+    pub(crate) async fn request(
+        &self,
+        app: &AppHandle,
+        command: Command,
+    ) -> Result<Reply, ClientError> {
         let client = self.client(app).await?;
         match client.request(command.clone()).await {
-            Err(ClientError::Disconnected) => {
-                self.client.lock().await.take();
-                self.client(app).await?.request(command).await
-            }
+            Err(ClientError::Disconnected) => self.client(app).await?.request(command).await,
             other => other,
         }
     }
@@ -150,6 +158,14 @@ impl Daemon {
     pub async fn ensure_running(&self, app: &AppHandle) {
         if let Err(e) = self.client(app).await {
             tracing::warn!("o daemon não iniciou: {e}");
+            return;
+        }
+        // A bandeja começa com o estado atual; depois, segue os eventos.
+        if let Ok(Reply::Status(status)) = self.request(app, Command::Status).await {
+            crate::tray::show_status(app, &status);
+        }
+        if let Ok(Reply::Policy(policy)) = self.request(app, Command::GetPolicy).await {
+            crate::tray::show_policy(app, &policy);
         }
     }
 
@@ -174,10 +190,12 @@ impl Daemon {
             return Err(ClientError::Disconnected);
         }
         let mut slot = self.client.lock().await;
-        if let Some(client) = slot.as_ref() {
+        // Só uma conexão que caiu é trocada. Vários pedidos que falham juntos
+        // reaproveitam a que o primeiro abriu, em vez de abrir uma cada.
+        if let Some(client) = slot.as_ref().filter(|client| !client.is_closed()) {
             return Ok(client.clone());
         }
-        let client = connect().await?;
+        let client = connect(&self.replaced).await?;
         tauri::async_runtime::spawn(forward_events(app.clone(), client.clone()));
         *slot = Some(client.clone());
         Ok(client)
@@ -192,11 +210,18 @@ async fn shutdown_daemon(address: &Address) -> Result<Reply, ClientError> {
         .await
 }
 
-/// Conecta ao daemon, iniciando o daemon se ele não estiver rodando.
-async fn connect() -> Result<Client, ClientError> {
+/// Conecta ao daemon, iniciando o daemon se ele não estiver rodando. Um
+/// daemon de versão antiga, que sobrou de antes de uma atualização, é
+/// encerrado uma vez por execução do app para dar lugar ao desta versão.
+async fn connect(replaced: &AtomicBool) -> Result<Client, ClientError> {
     let address = Address::default_for_user()?;
     match Client::connect(&address).await {
         Err(ClientError::NotRunning { .. }) => {}
+        Err(ClientError::Incompatible { daemon }) => {
+            if replaced.swap(true, Ordering::SeqCst) || !stop_old(&address).await {
+                return Err(ClientError::Incompatible { daemon });
+            }
+        }
         other => return other,
     }
     spawn_daemon()?;
@@ -210,6 +235,46 @@ async fn connect() -> Result<Client, ClientError> {
     }
 }
 
+/// Pede que o daemon que ocupa o socket saia, achando o processo pelo
+/// próprio socket: vale para qualquer versão do protocolo, que o daemon
+/// antigo recusaria no `hello`. `true` quando o socket ficou livre.
+#[cfg(unix)]
+async fn stop_old(address: &Address) -> bool {
+    let Some(pid) = socket_owner(address).await else {
+        return false;
+    };
+    tracing::info!("encerrando o daemon de versão antiga (pid {pid})");
+    // SAFETY: kill só manda um sinal ao pid, que não é este processo nem o init.
+    if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+        return false;
+    }
+    let deadline = tokio::time::Instant::now() + SHUTDOWN_TIMEOUT;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if matches!(
+            Client::connect(address).await,
+            Err(ClientError::NotRunning { .. })
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(not(unix))]
+async fn stop_old(_address: &Address) -> bool {
+    false
+}
+
+/// O processo que escuta no socket. Nunca este próprio processo nem o init.
+#[cfg(unix)]
+async fn socket_owner(address: &Address) -> Option<libc::pid_t> {
+    let Address::Path(path) = address;
+    let stream = tokio::net::UnixStream::connect(path).await.ok()?;
+    let pid = stream.peer_cred().ok()?.pid()?;
+    (pid > 1 && pid.unsigned_abs() != std::process::id()).then_some(pid)
+}
+
 /// Repassa os eventos do daemon à interface até a conexão cair.
 async fn forward_events(app: AppHandle, client: Client) {
     let mut events = client.subscribe();
@@ -217,6 +282,11 @@ async fn forward_events(app: AppHandle, client: Client) {
         tokio::select! {
             event = events.recv() => match event {
                 Ok(event) => {
+                    match &event {
+                        Event::StatusChanged { status } => crate::tray::show_status(&app, status),
+                        Event::PolicyChanged { policy } => crate::tray::show_policy(&app, policy),
+                        Event::PlaybackFailed { .. } => {}
+                    }
                     let _ = app.emit(EVENT, event);
                 }
                 // Só com a interface travada; o próximo status corrige.
@@ -239,16 +309,42 @@ fn daemon_path() -> io::Result<PathBuf> {
     Ok(exe.with_file_name(format!("solune-daemon{}", std::env::consts::EXE_SUFFIX)))
 }
 
+/// Para onde vai o log do daemon. No Linux ele herda o stderr do app: no dev,
+/// o mesmo terminal; instalado, o destino que a sessão deu ao app. Sem isso,
+/// um daemon que morre ao iniciar deixa só o aviso de "desligado".
+fn daemon_log() -> Stdio {
+    #[cfg(unix)]
+    {
+        Stdio::inherit()
+    }
+    // shortcut: o log do Windows cresce sem limite; trocar por rotação quando
+    // o daemon rodar lá.
+    #[cfg(not(unix))]
+    {
+        log_file().map_or_else(Stdio::null, Stdio::from)
+    }
+}
+
+#[cfg(not(unix))]
+fn log_file() -> Option<std::fs::File> {
+    let dir = PathBuf::from(std::env::var_os("APPDATA")?).join("Solune");
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("daemon.log"))
+        .ok()
+}
+
 /// Inicia o daemon desligado do app: ele segue rodando quando o app sai.
 fn spawn_daemon() -> io::Result<()> {
     let path = daemon_path()?;
     tracing::info!("iniciando o daemon: {}", path.display());
     let mut command = std::process::Command::new(&path);
-    command.stdin(Stdio::null()).stdout(Stdio::null());
-    // No dev, o log do daemon sai no mesmo terminal do app.
-    if !cfg!(debug_assertions) {
-        command.stderr(Stdio::null());
-    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(daemon_log());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -316,6 +412,63 @@ mod tests {
 
         shutdown_daemon(&address).await.unwrap();
         assert_eq!(daemon.await.unwrap(), Command::Shutdown);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn nunca_mata_o_proprio_processo() {
+        use solune_ipc::transport::Listener;
+
+        let dir = tempfile::tempdir().unwrap();
+        let address = Address::Path(dir.path().join("daemon.sock"));
+        let _listener = Listener::bind(&address).unwrap();
+        // O socket é deste mesmo processo, então não há daemon antigo a encerrar.
+        assert_eq!(socket_owner(&address).await, None);
+        assert!(!stop_old(&address).await);
+    }
+
+    /// Faz o papel de um daemon de versão antiga: escuta no socket e não
+    /// responde a ninguém. Só age quando `encerra_o_daemon_antigo...` roda
+    /// este mesmo binário de teste como processo filho; sozinho, não faz nada.
+    #[cfg(unix)]
+    #[test]
+    fn ocupa_o_socket_sem_responder() {
+        if let Some(path) = std::env::var_os("SOLUNE_TEST_OCUPA_SOCKET") {
+            let _listener = std::os::unix::net::UnixListener::bind(path).unwrap();
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn encerra_o_daemon_antigo_que_ocupa_o_socket() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let mut old = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "daemon::tests::ocupa_o_socket_sem_responder",
+                "--exact",
+                "--nocapture",
+            ])
+            .env("SOLUNE_TEST_OCUPA_SOCKET", &socket)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        for _ in 0..100 {
+            if socket.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(socket.exists(), "o processo filho não abriu o socket");
+
+        let address = Address::Path(socket);
+        assert_eq!(socket_owner(&address).await, Some(old.id() as libc::pid_t));
+        assert!(stop_old(&address).await);
+        // Terminou por SIGTERM, sem passar pelo fim normal do teste.
+        assert_eq!(old.wait().unwrap().signal(), Some(libc::SIGTERM));
     }
 
     #[tokio::test]

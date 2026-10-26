@@ -5,16 +5,30 @@
   "nav": {
     "label": "Navegação",
     "library": "Biblioteca",
-    "rules": "Regras e desempenho"
+    "rules": "Regras e desempenho",
+    "monitors": "Monitores",
+    "themes": "Claro e escuro",
+    "dark_mode": "Modo escuro do app"
   },
   "library": {
     "title": "Biblioteca",
-    "empty": "Arraste um vídeo para começar",
-    "import": "Importar vídeo",
-    "count_one": "{{count}} wallpaper",
-    "count_other": "{{count}} wallpapers",
+    "search": "Buscar por nome",
+    "search_label": "Buscar na biblioteca",
+    "import": "Importar vídeo ou imagem",
+    "filter": "Vídeos e imagens",
+    "filters": {
+      "label": "Filtrar biblioteca",
+      "all": "Tudo",
+      "video": "Vídeos",
+      "image": "Imagens",
+      "light": "Para o tema claro",
+      "dark": "Para o tema escuro"
+    },
+    "shown_one": "{{shown}} de {{count}} item",
+    "shown_other": "{{shown}} de {{count}} itens",
     "drop": "Solte para adicionar à biblioteca",
-    "filter": "Vídeos"
+    "details": "Ver detalhes",
+    "delete": "Excluir da biblioteca"
   },
   "player": {
     "apply": "Definir como papel de parede",
@@ -40,14 +54,18 @@
   },
   "error": {
     "file_not_found": "Não encontrei o arquivo. Ele pode ter sido movido ou apagado.",
-    "unsupported_format": "Não consegui abrir o vídeo. Converta para MP4 e tente de novo.",
+    "unsupported_format": "Não consegui abrir o arquivo. Converta para MP4 ou PNG e tente de novo.",
     "surface_unavailable": "Não consegui pôr o vídeo no fundo da tela nesta sessão.",
     "internal": "Algo deu errado no serviço do Solune. Tente de novo."
   },
   "tray": {
     "open": "Abrir o Solune",
     "rules": "Regras e desempenho",
-    "quit": "Sair do Solune"
+    "quit": "Sair do Solune",
+    "next": "Próximo",
+    "follow": "Seguir o tema do sistema",
+    "light": "Claro agora",
+    "dark": "Escuro agora"
   },
   "rules": {
     "title": "Regras e desempenho",
@@ -87,10 +105,125 @@
       "label": "Parar de vez depois de 5 minutos pausado",
       "help": "Libera memória e mantém a última imagem na tela. O vídeo volta do mesmo ponto."
     },
+    "show_desktop_icons": {
+      "label": "Mostrar ícones na área de trabalho",
+      "help": "Com o wallpaper ativo, os ícones continuam por cima do vídeo. Desligado, ficam escondidos até você parar o Solune. Funciona no Cinnamon."
+    },
     "autostart": {
       "label": "Iniciar com o sistema",
       "help": "Fica na bandeja, sem abrir a janela.",
       "error": "Não consegui mudar o início com o sistema."
+    }
+  },
+  "now": {
+    "title": "Tocando agora"
+  },
+  "detail": {
+    "back": "Voltar à biblioteca",
+    "video": "Vídeo",
+    "image": "Imagem",
+    "applied": "Aplicado em todos os monitores",
+    "preview": "Prévia",
+    "sound": "Tocar com som",
+    "apply": "Aplicar",
+    "apply_on": "Aplicar em",
+    "theme": "Tema deste wallpaper",
+    "theme_help": "Marque o tema e escolha o par do outro. O Solune troca entre os dois quando o tema muda.",
+    "pair_light": "Par para o tema claro",
+    "pair_dark": "Par para o tema escuro",
+    "no_pair": "Nenhum",
+    "cost": "Custo agora",
+    "ram": "{{value}} MB de RAM",
+    "decode_cpu": "Decodificado pelo processador.",
+    "decode_gpu": "Decodificado pela placa de vídeo ({{hwdec}}).",
+    "apply_again": "Aplicar de novo",
+    "remove": "Remover da biblioteca"
+  },
+  "monitors": {
+    "title": "Monitores",
+    "intro": "Escolha um wallpaper só ou um carrossel que troca sozinho de tempos em tempos.",
+    "yours": "Seus monitores",
+    "name": "Monitor {{n}}",
+    "primary": "principal",
+    "all": "Todos os monitores",
+    "mode": "Tipo de wallpaper",
+    "single": "Um wallpaper",
+    "carousel": "Carrossel",
+    "nothing": "Nenhum wallpaper tocando",
+    "change": "Trocar wallpaper",
+    "empty": "Adicione wallpapers da biblioteca para montar o carrossel.",
+    "up": "Subir {{name}}",
+    "down": "Descer {{name}}",
+    "remove": "Remover",
+    "remove_named": "Remover {{name}} do carrossel",
+    "add": "Adicionar da biblioteca",
+    "add_pick": "Escolher um wallpaper",
+    "interval": "Trocar a cada",
+    "every": {
+      "5": "5 min",
+      "30": "30 min",
+      "60": "1 hora",
+      "login": "A cada login"
+    },
+    "shuffle": "Ordem aleatória",
+    "apply": "Tocar o carrossel",
+    "apply_again": "Aplicar de novo",
+    "next": "Próximo",
+    "same_everywhere": "Por enquanto, o mesmo wallpaper vale para todas as telas."
+  },
+  "themes": {
+    "title": "Claro e escuro",
+    "intro": "Cada wallpaper pode ter um par para o outro tema. O Solune troca sozinho.",
+    "light": "Claro",
+    "dark": "Escuro",
+    "when": "Quando trocar",
+    "rule": {
+      "system": "Seguir o tema do sistema",
+      "times": "Por horário",
+      "fixed": "Só quando eu escolher",
+      "system_help": "O Solune acompanha o tema do sistema: KDE, GNOME, Cinnamon e outros com o portal do freedesktop.",
+      "times_help": "Claro e escuro nos horários abaixo, todos os dias.",
+      "fixed_help": "O tema fica como você escolher, aqui ou na bandeja."
+    },
+    "light_at": "Claro a partir de",
+    "dark_at": "Escuro a partir de",
+    "now": "Tema agora",
+    "preview": "Prévia: {{name}}",
+    "preview_empty": "Prévia",
+    "preview_theme": "Tema da prévia",
+    "now_light": "Agora vale o tema claro.",
+    "now_dark": "Agora vale o tema escuro.",
+    "pairs": "Pares",
+    "pairs_empty": "Marque o tema de um wallpaper no detalhe dele para começar um par.",
+    "complete": "Par completo",
+    "missing_dark": "Falta o tema escuro",
+    "missing_light": "Falta o tema claro",
+    "pick": "Escolher o wallpaper do tema {{theme}}",
+    "choose": "Escolher"
+  },
+  "onboarding": {
+    "title": "Arraste um vídeo ou imagem para começar",
+    "intro": "O Solune põe o arquivo no seu papel de parede e cuida do resto: pausa em tela cheia, economiza bateria e troca entre claro e escuro.",
+    "drop": "Solte o arquivo aqui",
+    "formats": "MP4, WebM, MKV, MOV, PNG, JPG e WebP",
+    "pick_file": "Escolher arquivo",
+    "pick_folder": "Escolher uma pasta",
+    "steps": "Em três passos",
+    "step": "Passo {{n}}",
+    "step1": "Importar",
+    "step1_help": "Arraste ou escolha vídeos e imagens.",
+    "step2": "Escolher o tema",
+    "step2_help": "Um wallpaper para o claro e outro para o escuro, se quiser.",
+    "step3": "Definir como papel de parede",
+    "step3_help": "O Solune vai para a bandeja e continua tocando.",
+    "system": {
+      "title": "Seu sistema",
+      "ready": "Pronto",
+      "needs_extension": "Falta uma extensão",
+      "unsupported": "Ainda não suportado",
+      "ready_help": "Vídeos e imagens tocam atrás dos ícones da área de trabalho, com a decodificação pela placa de vídeo quando ela suporta.",
+      "extension_help": "O GNOME não deixa um app desenhar o fundo da tela. A extensão do Solune para o GNOME chega na versão 0.2.",
+      "unsupported_help": "Esta sessão ainda não tem superfície de papel de parede no Solune."
     }
   }
 }

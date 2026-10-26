@@ -5,6 +5,7 @@
 //! ([`transport`], com a feature `transport`).
 
 pub mod protocol;
+pub mod theme;
 
 #[cfg(feature = "transport")]
 pub mod codec;
@@ -12,3 +13,4 @@ pub mod codec;
 pub mod transport;
 
 pub use protocol::*;
+pub use theme::{Schedule, Theme, TimeOfDay};

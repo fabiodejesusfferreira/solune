@@ -157,7 +157,7 @@ mod tests {
             pause_on_fullscreen: false,
             pause_on_battery: false,
             pause_on_lock: false,
-            release_when_paused: true,
+            ..Settings::default()
         });
         pauses.set_signals(signals(true, true, true));
         assert_eq!(pauses.decision(), Decision::Play);
@@ -196,6 +196,7 @@ mod tests {
             fullscreen: None,
             on_battery: Some(true),
             screen_locked: None,
+            dark: None,
         });
         assert_eq!(signals, self::signals(false, false, true));
     }

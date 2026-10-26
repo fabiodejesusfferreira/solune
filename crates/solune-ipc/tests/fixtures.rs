@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 use solune_ipc::{
-    Conditions, ErrorCode, Event, PauseReason, PlayerState, Policy, Settings, Status, Usage,
+    Conditions, ErrorCode, Event, PauseReason, PlayerState, Policy, Schedule, Settings, Status,
+    Theme, TimeOfDay, Usage,
 };
 
 fn fixtures() -> Vec<(&'static str, Value)> {
@@ -18,6 +19,7 @@ fn fixtures() -> Vec<(&'static str, Value)> {
         path: Some("/home/ana/Vídeos/praia.mp4".into()),
         pause_reason: None,
         hwdec: Some("vaapi".into()),
+        theme: Theme::Dark,
     };
     let paused = Status {
         state: PlayerState::Paused,
@@ -27,12 +29,17 @@ fn fixtures() -> Vec<(&'static str, Value)> {
     let policy = Policy {
         settings: Settings {
             pause_on_battery: false,
+            schedule: Schedule::Times {
+                light_at: TimeOfDay::new(7, 0).unwrap(),
+                dark_at: TimeOfDay::new(19, 30).unwrap(),
+            },
             ..Settings::default()
         },
         conditions: Conditions {
             fullscreen: Some(true),
             on_battery: None,
             screen_locked: Some(false),
+            dark: Some(true),
         },
     };
     vec![

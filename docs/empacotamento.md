@@ -166,7 +166,7 @@ O Solune tem pontos a mais que pedem teste antes de valer a pena, todos não ver
 
 ## O que falta
 
-- Instalar e abrir o `.deb` num computador (o Linux Mint do Fábio).
+- Instalar e abrir o `.deb` num computador (o Linux Mint do usuário).
 - Decidir de onde vem o libmpv LGPL do Windows, declarar a DLL e o aviso de licença no pacote e gerar o NSIS e o MSI.
 - Gerar o AppImage com um libmpv e um FFmpeg LGPL, sem as bibliotecas GPL que vêm do Ubuntu.
 - Gerar os pacotes no CI, num sistema mais antigo, para baixar o piso da glibc.

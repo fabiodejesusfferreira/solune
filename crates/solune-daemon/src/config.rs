@@ -9,7 +9,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use solune_ipc::Settings;
+use solune_ipc::{Playlist, Settings};
 
 /// Variável de ambiente que troca a pasta de configuração.
 pub const CONFIG_ENV: &str = "SOLUNE_CONFIG_DIR";
@@ -17,11 +17,25 @@ pub const CONFIG_ENV: &str = "SOLUNE_CONFIG_DIR";
 const SETTINGS_FILE: &str = "settings.json";
 const STATE_FILE: &str = "state.json";
 
-/// O wallpaper em uso. Sem `path`, nada toca ao iniciar.
+/// O wallpaper em uso. Sem lista, nada toca ao iniciar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct State {
+    /// Só de versões antigas, que tocavam um arquivo por vez.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
+    pub list: Option<Playlist>,
+    /// O item do carrossel em uso, para seguir dele ao reiniciar.
+    pub position: usize,
+}
+
+impl State {
+    /// A lista em uso, convertendo o formato antigo.
+    pub fn playlist(&self) -> Option<Playlist> {
+        self.list
+            .clone()
+            .or_else(|| self.path.clone().map(Playlist::single))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -128,11 +142,24 @@ mod tests {
             ..Settings::default()
         };
         store.save_settings(&settings);
+        let list = Playlist::single("/v/praia.mp4".into());
         store.save_state(&State {
-            path: Some("/v/praia.mp4".into()),
+            list: Some(list.clone()),
+            position: 0,
+            path: None,
         });
         assert_eq!(store.settings(), settings);
-        assert_eq!(store.state().path, Some("/v/praia.mp4".into()));
+        assert_eq!(store.state().playlist(), Some(list));
+    }
+
+    #[test]
+    fn estado_antigo_vira_lista() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(STATE_FILE), r#"{"path":"/v/praia.mp4"}"#).unwrap();
+        assert_eq!(
+            Store::at(dir.path()).state().playlist(),
+            Some(Playlist::single("/v/praia.mp4".into()))
+        );
     }
 
     #[test]

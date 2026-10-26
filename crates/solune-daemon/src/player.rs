@@ -12,13 +12,15 @@ use std::time::{Duration, Instant};
 
 use solune_core::policy::{self, Decision, Pauses, RELEASE_AFTER};
 use solune_ipc::{
-    Command, Conditions, ErrorCode, Event, Outcome, PlayerState, Policy, Reply, Settings, Status,
-    Usage,
+    Command, Conditions, ErrorCode, Event, Outcome, PlayerState, Playlist, Policy, Reply, Settings,
+    Status, Theme, Usage,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::config::{State, Store};
+use crate::icons::Icons;
 use crate::mpv::{self, Mpv};
+use crate::show::{Show, local_time};
 use crate::signals::{Change, Watchers};
 use crate::surface::{Kind, Surface};
 use crate::usage::Sampler;
@@ -43,6 +45,13 @@ pub struct Config {
     pub signals: bool,
 }
 
+/// De quanto em quanto tempo o ator olha o relógio: carrossel e agenda de temas.
+const TICK: Duration = Duration::from_secs(30);
+
+/// Quanto esperar o tema do sistema antes de voltar ao wallpaper salvo. Sem
+/// ele, um par claro e escuro abriria o claro e trocaria logo em seguida.
+const THEME_WAIT: Duration = Duration::from_secs(2);
+
 /// Variável que encurta os 5 minutos até liberar o decodificador, para
 /// testes e medições.
 const RELEASE_AFTER_ENV: &str = "SOLUNE_RELEASE_AFTER_SECS";
@@ -65,6 +74,11 @@ fn trim_heap() {
     }
 }
 
+/// A faixa de áudio do mpv: `no` nem abre o decodificador de áudio.
+fn audio_track(sound: bool) -> &'static str {
+    if sound { "auto" } else { "no" }
+}
+
 /// Mensagens que o ator recebe.
 #[derive(Debug)]
 pub enum Msg {
@@ -74,6 +88,10 @@ pub enum Msg {
     Signal(Change),
     /// Passou o tempo de liberar o decodificador da pausa com este número.
     ReleaseTimer(u64),
+    /// Acabou a espera pelo tema do sistema; volta ao wallpaper salvo.
+    RestoreTimer,
+    /// Hora de conferir o carrossel e a agenda de temas.
+    Tick,
     /// Encerra o ator. A caixa de entrada não fecha sozinha: o próprio
     /// player guarda remetentes para a superfície e a thread de eventos.
     Quit,
@@ -90,9 +108,10 @@ pub enum Note {
     Failed(i32),
 }
 
-/// Erros do libmpv (client.h) que significam arquivo que não toca.
+/// Erros do libmpv (client.h) que significam arquivo que não toca. O -14 é
+/// `MPV_ERROR_AO_INIT_FAILED` (áudio) e cai em `Internal`.
 const MPV_ERROR_LOADING_FAILED: i32 = -13;
-const MPV_ERROR_VO_INIT_FAILED: i32 = -14;
+const MPV_ERROR_VO_INIT_FAILED: i32 = -15;
 const MPV_ERROR_NOTHING_TO_PLAY: i32 = -16;
 const MPV_ERROR_UNKNOWN_FORMAT: i32 = -17;
 
@@ -117,6 +136,7 @@ pub struct Player {
     mpv: Arc<Mpv>,
     config: Config,
     surface: Option<Surface>,
+    icons: Icons,
     status: Status,
     events: broadcast::Sender<Event>,
     inbox: mpsc::UnboundedSender<Msg>,
@@ -135,6 +155,15 @@ pub struct Player {
     /// levou até o primeiro quadro.
     reloading_since: Option<Instant>,
     sampler: Sampler,
+    /// A lista em uso, se há uma.
+    show: Option<Show>,
+    /// O tema que vale agora.
+    theme: Theme,
+    /// Quantos itens seguidos do carrossel não tocaram. Zera no primeiro
+    /// quadro de um item que toca.
+    failures: usize,
+    /// O wallpaper salvo ainda não voltou: espera o tema do sistema.
+    restore_pending: bool,
 }
 
 impl std::fmt::Debug for Player {
@@ -159,6 +188,7 @@ impl Player {
             Output::Wallpaper => "libmpv",
             Output::Headless => "null",
         };
+        let settings = config.store.settings();
         let mpv = Arc::new(Mpv::new(&[
             ("terminal", "yes"),
             ("msg-level", "all=warn"),
@@ -166,10 +196,13 @@ impl Player {
             ("vo", vo),
             ("hwdec", &config.hwdec),
             ("loop-file", "inf"),
-            ("aid", "no"),
+            // Uma imagem fica na tela até trocar, sem reabrir a cada segundo.
+            ("image-display-duration", "inf"),
+            ("aid", audio_track(settings.sound)),
         ])?);
         let watcher = Watcher::spawn(Arc::clone(&mpv), inbox.clone());
-        let pauses = Pauses::new(config.store.settings());
+        let pauses = Pauses::new(settings);
+        let restore_pending = config.signals;
         let signals = config.signals.then(|| {
             let inbox = inbox.clone();
             let kind = match config.output {
@@ -187,6 +220,7 @@ impl Player {
             mpv,
             config,
             surface: None,
+            icons: Icons::default(),
             status: Status::default(),
             events,
             inbox,
@@ -200,16 +234,48 @@ impl Player {
             start_pending: false,
             reloading_since: None,
             sampler: Sampler::default(),
+            show: None,
+            theme: settings.schedule.theme_at(local_time(), Theme::Light),
+            failures: 0,
+            restore_pending,
         })
     }
 
     /// Roda o ator até receber `Quit`. Antes, volta a tocar o wallpaper que
     /// estava em uso quando o daemon parou.
     pub async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Msg>) {
-        self.restore();
+        if self.restore_pending {
+            // Com os sinais ligados, o wallpaper volta quando o tema do
+            // sistema chegar (`on_signal`); o prazo evita esperar sem fim.
+            let wait = self.inbox.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(THEME_WAIT).await;
+                let _ = wait.send(Msg::RestoreTimer);
+            });
+        } else {
+            self.restore();
+        }
+        let ticks = self.inbox.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(TICK);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if ticks.send(Msg::Tick).is_err() {
+                    break;
+                }
+            }
+        });
         while let Some(msg) = inbox.recv().await {
             match msg {
                 Msg::Command(command, reply) => {
+                    // Quem escolhe o que toca vale mais que o wallpaper salvo.
+                    if matches!(
+                        command,
+                        Command::Play { .. } | Command::PlayList { .. } | Command::Stop
+                    ) {
+                        self.restore_pending = false;
+                    }
                     let outcome = self.handle(command);
                     let _ = reply.send(outcome);
                 }
@@ -217,28 +283,57 @@ impl Player {
                 Msg::SurfaceEnded(result) => self.on_surface_ended(result),
                 Msg::Signal(change) => self.on_signal(change),
                 Msg::ReleaseTimer(generation) => self.on_release_timer(generation),
+                Msg::RestoreTimer => self.restore_if_pending(),
+                Msg::Tick => self.on_tick(),
                 Msg::Quit => break,
             }
         }
         drop(self.signals.take());
     }
 
+    fn restore_if_pending(&mut self) {
+        if std::mem::take(&mut self.restore_pending) {
+            self.restore();
+        }
+    }
+
+    /// Volta ao wallpaper salvo. Um arquivo que sumiu (um disco que ainda
+    /// não montou, por exemplo) não apaga a lista: o daemon pula para o
+    /// próximo item e, se nenhum existe, deixa o arquivo salvo como está
+    /// para o próximo login.
     fn restore(&mut self) {
-        let Some(path) = self.config.store.state().path else {
+        let state = self.config.store.state();
+        let Some(list) = state.playlist() else {
             return;
         };
-        tracing::info!("voltando ao wallpaper em uso: {}", path.display());
-        if let Err(code) = self.play(&path) {
-            tracing::warn!("não deu para voltar ao wallpaper: {}", code.code());
-            if code == ErrorCode::FileNotFound {
-                self.config.store.save_state(&State::default());
+        // Carrossel sem intervalo: troca de item a cada login.
+        let position = state.position + usize::from(list.every_minutes == 0);
+        tracing::info!("voltando ao wallpaper em uso ({} itens)", list.items.len());
+        let mut show = Show::new(list, position);
+        for _ in 0..show.len() {
+            let path = show.item().for_theme(self.theme).to_owned();
+            match self.play(&path) {
+                Ok(()) => {
+                    self.failures = 0;
+                    self.show = Some(show);
+                    self.save_show();
+                    return;
+                }
+                Err(ErrorCode::FileNotFound) => show.advance(),
+                Err(code) => {
+                    tracing::warn!("não deu para voltar ao wallpaper: {}", code.code());
+                    return;
+                }
             }
         }
+        tracing::warn!("nenhum arquivo do wallpaper salvo está disponível");
     }
 
     fn handle(&mut self, command: Command) -> Outcome {
         let result = match command {
-            Command::Play { path } => self.play(&path),
+            Command::Play { path } => self.play_list(Playlist::single(path), 0),
+            Command::PlayList { list } => self.play_list(list, 0),
+            Command::Next => self.next(),
             Command::Pause => self.pause(),
             Command::Resume => self.resume(),
             Command::Stop => {
@@ -279,8 +374,16 @@ impl Player {
         if settings.release_when_paused && !before.release_when_paused {
             self.arm_release_timer();
         }
+        if settings.sound != before.sound
+            && let Err(e) = self.mpv.set_property("aid", audio_track(settings.sound))
+        {
+            tracing::warn!("{e}");
+        }
+        self.sync_icons();
         self.publish_policy();
-        self.apply_policy()
+        self.apply_policy()?;
+        self.update_theme();
+        Ok(())
     }
 
     fn usage(&mut self) -> Usage {
@@ -301,6 +404,141 @@ impl Player {
             gpu_memory_bytes: reading.gpu_memory_bytes,
             fps,
             released: self.released.is_some(),
+        }
+    }
+
+    /// Toca a lista a partir do item `position`.
+    fn play_list(&mut self, list: Playlist, position: usize) -> Result<(), ErrorCode> {
+        if list.items.is_empty() {
+            return Err(ErrorCode::FileNotFound);
+        }
+        let show = Show::new(list, position);
+        let path = show.item().for_theme(self.theme).to_owned();
+        self.play(&path)?;
+        self.failures = 0;
+        self.show = Some(show);
+        self.save_show();
+        Ok(())
+    }
+
+    /// O item que acabou de falhar não derruba o carrossel: tenta os outros,
+    /// cada um uma vez. `false` quando não há para onde ir.
+    fn skip_broken(&mut self) -> bool {
+        loop {
+            let Some(show) = &mut self.show else {
+                return false;
+            };
+            if self.failures + 1 >= show.len() {
+                return false;
+            }
+            self.failures += 1;
+            show.advance();
+            self.save_show();
+            let failed = self.status.path.clone();
+            match self.show_current() {
+                // Um item repetido, igual ao que falhou, não abre nada novo.
+                Ok(()) if self.status.path != failed => return true,
+                Ok(()) => {}
+                Err(code) => tracing::warn!("o próximo item também não toca: {}", code.code()),
+            }
+        }
+    }
+
+    fn save_show(&self) {
+        let state = self
+            .show
+            .as_ref()
+            .map_or_else(State::default, |show| State {
+                path: None,
+                list: Some(show.list.clone()),
+                position: show.position,
+            });
+        self.config.store.save_state(&state);
+    }
+
+    /// Pula para o próximo item do carrossel.
+    fn next(&mut self) -> Result<(), ErrorCode> {
+        let Some(show) = &mut self.show else {
+            return Ok(());
+        };
+        show.advance();
+        self.save_show();
+        self.show_current()
+    }
+
+    /// Troca o arquivo pelo que vale agora (item do carrossel e tema), sem
+    /// mexer nas pausas: pausado continua pausado.
+    fn show_current(&mut self) -> Result<(), ErrorCode> {
+        let Some(path) = self
+            .show
+            .as_ref()
+            .map(|s| s.item().for_theme(self.theme).to_owned())
+        else {
+            return Ok(());
+        };
+        if self.status.state == PlayerState::Stopped || self.status.path.as_ref() == Some(&path) {
+            return Ok(());
+        }
+        if !path.is_file() {
+            return Err(ErrorCode::FileNotFound);
+        }
+        if let Some(released) = &mut self.released {
+            // Retomar já abre o arquivo novo, do começo.
+            released.position = None;
+        } else {
+            let Some(file) = path.to_str() else {
+                return Err(ErrorCode::FileNotFound);
+            };
+            self.reloading_since = None;
+            self.clear_start();
+            self.mpv.command(&["loadfile", file]).map_err(|e| {
+                tracing::error!("{e}");
+                ErrorCode::Internal
+            })?;
+        }
+        tracing::info!("trocando para {}", path.display());
+        self.set_status(Status {
+            path: Some(path),
+            hwdec: None,
+            ..self.status.clone()
+        });
+        Ok(())
+    }
+
+    /// Recalcula o tema pela agenda e pelo sistema; se mudou, troca o arquivo.
+    fn update_theme(&mut self) {
+        let system = if self.conditions.dark == Some(true) {
+            Theme::Dark
+        } else {
+            Theme::Light
+        };
+        let theme = self
+            .pauses
+            .settings()
+            .schedule
+            .theme_at(local_time(), system);
+        if theme == self.theme {
+            return;
+        }
+        tracing::info!("tema agora: {theme:?}");
+        self.theme = theme;
+        self.set_status(Status {
+            theme,
+            ..self.status.clone()
+        });
+        if let Err(code) = self.show_current() {
+            tracing::warn!("não deu para trocar de tema: {}", code.code());
+        }
+    }
+
+    fn on_tick(&mut self) {
+        self.update_theme();
+        // Pausado ninguém vê a troca: o carrossel espera voltar a tocar.
+        if self.status.state == PlayerState::Playing
+            && self.show.as_ref().is_some_and(Show::due)
+            && let Err(code) = self.next()
+        {
+            tracing::warn!("o carrossel não trocou: {}", code.code());
         }
     }
 
@@ -327,9 +565,7 @@ impl Player {
             path: Some(path.to_owned()),
             pause_reason: None,
             hwdec: None,
-        });
-        self.config.store.save_state(&State {
-            path: Some(path.to_owned()),
+            theme: self.theme,
         });
         // Um wallpaper novo já nasce pausado se, por exemplo, há um app em
         // tela cheia.
@@ -366,7 +602,14 @@ impl Player {
             }
         });
         self.surface = Some(surface);
+        self.sync_icons();
         Ok(())
+    }
+
+    /// Os ícones ficam escondidos só enquanto há wallpaper e o usuário pediu.
+    fn sync_icons(&mut self) {
+        let hidden = self.surface.is_some() && !self.pauses.settings().show_desktop_icons;
+        self.icons.set_hidden(hidden);
     }
 
     fn pause(&mut self) -> Result<(), ErrorCode> {
@@ -421,11 +664,21 @@ impl Player {
     }
 
     fn on_signal(&mut self, change: Change) {
+        self.apply_signal(change);
+        // Com o tema do sistema conhecido, o wallpaper salvo abre já no
+        // arquivo certo do par claro e escuro.
+        if matches!(change, Change::Dark(_)) {
+            self.restore_if_pending();
+        }
+    }
+
+    fn apply_signal(&mut self, change: Change) {
         let before = self.conditions;
         match change {
             Change::Fullscreen(v) => self.conditions.fullscreen = v,
             Change::Battery(v) => self.conditions.on_battery = v,
             Change::Locked(v) => self.conditions.screen_locked = v,
+            Change::Dark(v) => self.conditions.dark = v,
         }
         if self.conditions == before {
             return;
@@ -435,6 +688,7 @@ impl Player {
         if let Err(code) = self.apply_policy() {
             tracing::warn!("a política não pôde ser aplicada: {}", code.code());
         }
+        self.update_theme();
     }
 
     /// Agenda a liberação do decodificador para quando a pausa atual fizer
@@ -570,16 +824,22 @@ impl Player {
         self.clear_start();
         self.paused_since = None;
         self.pauses.reset();
+        self.show = None;
         if let Some(mut surface) = self.surface.take() {
             tokio::task::block_in_place(|| surface.shutdown());
         }
-        self.set_status(Status::default());
+        self.sync_icons();
+        self.set_status(Status {
+            theme: self.theme,
+            ..Status::default()
+        });
     }
 
     fn on_note(&mut self, note: Note) {
         match note {
             Note::Loaded => self.clear_start(),
             Note::Playing { hwdec } => {
+                self.failures = 0;
                 if let Some(since) = self.reloading_since.take() {
                     tracing::info!("vídeo de volta em {} ms", since.elapsed().as_millis());
                 }
@@ -597,9 +857,17 @@ impl Player {
                     "a reprodução falhou: {} ({code})",
                     mpv::Error::describe(code)
                 );
-                self.stop();
-                // Não adianta tentar de novo ao reiniciar.
-                self.config.store.save_state(&State::default());
+                if !self.skip_broken() {
+                    // Só um arquivo, ou nenhum da lista toca. Um arquivo
+                    // sozinho que não toca não adianta tentar de novo ao
+                    // reiniciar; uma lista fica salva, para quando os
+                    // arquivos voltarem.
+                    let single = self.show.as_ref().is_none_or(|show| show.len() < 2);
+                    self.stop();
+                    if single {
+                        self.config.store.save_state(&State::default());
+                    }
+                }
                 let _ = self.events.send(Event::PlaybackFailed { error });
             }
         }
@@ -646,6 +914,8 @@ impl Drop for Player {
 /// Thread que espera os eventos do libmpv e os repassa ao ator.
 struct Watcher {
     stop: Arc<AtomicBool>,
+    /// Para acordar a thread quando ela precisa parar.
+    mpv: Arc<Mpv>,
     join: Option<JoinHandle<()>>,
 }
 
@@ -656,11 +926,13 @@ impl Watcher {
             .name("mpv-events".into())
             .spawn({
                 let stop = Arc::clone(&stop);
+                let player = Arc::clone(&player);
                 move || watch(&player, &stop, &inbox)
             })
             .expect("criar a thread de eventos do libmpv");
         Self {
             stop,
+            mpv: player,
             join: Some(join),
         }
     }
@@ -669,6 +941,7 @@ impl Watcher {
 impl Drop for Watcher {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        self.mpv.wakeup();
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
@@ -677,7 +950,9 @@ impl Drop for Watcher {
 
 fn watch(player: &Mpv, stop: &AtomicBool, inbox: &mpsc::UnboundedSender<Msg>) {
     while !stop.load(Ordering::Relaxed) {
-        let Some(event) = player.wait_event(0.25) else {
+        // Sem timeout: parada, a thread dorme até o libmpv ter um evento, em
+        // vez de acordar quatro vezes por segundo. `Watcher::drop` a acorda.
+        let Some(event) = player.wait_event(-1.0) else {
             continue;
         };
         let note = match event {
@@ -703,7 +978,9 @@ mod tests {
     fn erros_do_libmpv_viram_codigos_do_protocolo() {
         assert_eq!(playback_error(-13), ErrorCode::UnsupportedFormat);
         assert_eq!(playback_error(-17), ErrorCode::UnsupportedFormat);
-        assert_eq!(playback_error(-14), ErrorCode::SurfaceUnavailable);
+        assert_eq!(playback_error(-15), ErrorCode::SurfaceUnavailable);
+        // Falha ao abrir o áudio não é falha da superfície.
+        assert_eq!(playback_error(-14), ErrorCode::Internal);
         assert_eq!(playback_error(-1), ErrorCode::Internal);
     }
 }

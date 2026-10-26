@@ -5,7 +5,8 @@
       "hwdec": "vaapi",
       "path": "/home/ana/Vídeos/praia.mp4",
       "pause_reason": "battery",
-      "state": "paused"
+      "state": "paused",
+      "theme": "dark"
     }
   },
   {
@@ -16,6 +17,7 @@
     "kind": "policy_changed",
     "policy": {
       "conditions": {
+        "dark": true,
         "fullscreen": true,
         "on_battery": null,
         "screen_locked": false
@@ -24,7 +26,14 @@
         "pause_on_battery": false,
         "pause_on_fullscreen": true,
         "pause_on_lock": true,
-        "release_when_paused": true
+        "release_when_paused": true,
+        "schedule": {
+          "dark_at": 1170,
+          "light_at": 420,
+          "mode": "times"
+        },
+        "show_desktop_icons": true,
+        "sound": false
       }
     }
   }

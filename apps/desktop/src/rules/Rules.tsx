@@ -5,9 +5,9 @@ import { ConnectionNotice } from "../daemon/ConnectionNotice";
 import type { Conditions, SettingName } from "../daemon/protocol";
 import { useDaemon } from "../daemon/store";
 import { useAutostart } from "./autostart";
-import { historySize, logicalCores, useUsage } from "./usage";
+import { historySize, logicalCores, type UsageHistory } from "./usage";
 
-export function Rules() {
+export function Rules({ usage }: { usage: UsageHistory }) {
   const { t } = useTranslation();
   const error = useDaemon((state) => state.error);
   return (
@@ -22,16 +22,16 @@ export function Rules() {
           {t(`error.${error}`)}
         </p>
       ) : null}
-      <UsageNow />
+      <UsageNow history={usage} />
       <WhenToPause />
     </main>
   );
 }
 
-function UsageNow() {
+function UsageNow({ history }: { history: UsageHistory }) {
   const { t, i18n } = useTranslation();
   const status = useDaemon((state) => state.status);
-  const { usage, cpu } = useUsage();
+  const { usage, cpu } = history;
   const number = (value: number, digits: number) =>
     value.toLocaleString(i18n.language, {
       minimumFractionDigits: digits,
@@ -201,7 +201,12 @@ function WhenToPause() {
   const autostart = useAutostart();
   const conditions: Conditions | undefined = policy?.conditions;
 
-  const rule = (name: SettingName, label: string, help: string, undetected?: string) => ({
+  const rule = (
+    name: Exclude<SettingName, "sound">,
+    label: string,
+    help: string,
+    undetected?: string,
+  ) => ({
     key: name,
     label,
     help,
@@ -234,6 +239,11 @@ function WhenToPause() {
       "release_when_paused",
       t("rules.release_when_paused.label"),
       t("rules.release_when_paused.help"),
+    ),
+    rule(
+      "show_desktop_icons",
+      t("rules.show_desktop_icons.label"),
+      t("rules.show_desktop_icons.help"),
     ),
     {
       key: "autostart",
