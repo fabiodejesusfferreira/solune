@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use interprocess::local_socket::tokio::{Listener as RawListener, Stream};
@@ -553,8 +555,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn pasta_que_ja_existe_nao_muda_de_permissao() {
+    #[tokio::test]
+    async fn pasta_que_ja_existe_nao_muda_de_permissao() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
