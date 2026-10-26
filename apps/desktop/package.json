@@ -1,6 +1,6 @@
 {
   "name": "@solune/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "App desktop do Solune: interface React dentro do Tauri",

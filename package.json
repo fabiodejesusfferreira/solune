@@ -14,6 +14,7 @@
     "build": "pnpm tokens && node scripts/stage-daemon.mjs && pnpm --filter @solune/desktop build",
     "ipc:fixtures": "node scripts/ipc-fixtures.mjs",
     "tokens": "pnpm --filter @solune/tokens build",
+    "version:set": "node scripts/set-version.mjs",
     "lint": "biome check . && node scripts/check-colors.mjs",
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",

@@ -1,0 +1,49 @@
+name: Release
+
+# Uma tag v* gera o .deb e publica uma Release no GitHub. O número da tag tem
+# de ser o da versão dos arquivos (veja scripts/set-version.mjs).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    name: Pacote .deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: A tag bate com a versão
+        run: |
+          version=$(grep -m1 '^  "version"' apps/desktop/src-tauri/tauri.conf.json | sed -E 's/.*: "(.*)".*/\1/')
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME e versão $version diferem"; exit 1; }
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmpv2 \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build --bundles deb
+      - name: Soma de verificação
+        run: |
+          cd target/release/bundle/deb
+          sha256sum *.deb | tee SHA256SUMS
+      - name: Publicar a Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## \\[?"v"\\]?" {f=1; next} /^## / {f=0} f' CHANGELOG.md)
+          flags=""; case "$GITHUB_REF_NAME" in *-*) flags="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" $flags --title "Solune $GITHUB_REF_NAME" \
+            --notes "${notes:-Veja o CHANGELOG.md.}" \
+            target/release/bundle/deb/*.deb target/release/bundle/deb/SHA256SUMS

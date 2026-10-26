@@ -4,7 +4,8 @@
     "externalBin": ["binaries/solune-daemon"],
     "linux": {
       "deb": {
-        "depends": ["libmpv2"]
+        "depends": ["libmpv2"],
+        "recommends": ["ffmpeg"]
       },
       "rpm": {
         "depends": ["libmpv.so.2()(64bit)"]

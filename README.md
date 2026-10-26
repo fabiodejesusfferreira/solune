@@ -87,7 +87,21 @@ A biblioteca ainda é provisória: guarda só o caminho dos vídeos, no armazena
 
 ## Gerar os instaladores
 
-`pnpm build` gera o `.deb` no Linux e o instalador NSIS (`.exe`) no Windows. Os comandos para rpm, AppImage, MSI e Flatpak, o que cada sistema consegue gerar e onde o daemon e o libmpv entram em cada pacote estão em [`docs/empacotamento.md`](docs/empacotamento.md).
+O `.deb` é o único pacote publicado. `pnpm build` gera o `.deb` no Linux e o instalador NSIS (`.exe`) no Windows. Os comandos para rpm, AppImage, MSI e Flatpak, o que cada sistema consegue gerar e onde o daemon e o libmpv entram em cada pacote estão em [`docs/empacotamento.md`](docs/empacotamento.md).
+
+## Versões e releases
+
+A versão fica em nove arquivos (crates, `tauri.conf.json` e pacotes JS). Para trocar em todos de uma vez e atualizar o `Cargo.lock`:
+
+```sh
+pnpm version:set 0.2.0
+```
+
+Depois escreva a seção da versão no [`CHANGELOG.md`](CHANGELOG.md), faça o commit e empurre a tag. O workflow [`release.yml`](.github/workflows/release.yml) confere se a tag bate com a versão, gera o `.deb` e publica a Release com a soma SHA-256 e as notas do changelog. Tags com hífen (`v1.0.0-rc.1`) saem como pré-lançamento.
+
+```sh
+git tag v0.2.0 && git push origin main v0.2.0
+```
 
 ## Rodar o daemon sozinho
 

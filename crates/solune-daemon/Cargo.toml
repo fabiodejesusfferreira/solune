@@ -1,6 +1,6 @@
 [package]
 name = "solune-daemon"
-version = "0.0.0"
+version = "0.1.0"
 description = "Daemon do Solune: toca o wallpaper com o libmpv e atende o app pelo socket local"
 publish = false
 edition.workspace = true
