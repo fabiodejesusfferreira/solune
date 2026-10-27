@@ -85,6 +85,23 @@
       "chart_label": "CPU nos últimos 60 segundos, com pico de {{value}}",
       "measuring": "Medindo"
     },
+    "memory": {
+      "title": "RAM por processo",
+      "daemon": "Player",
+      "daemon_help": "solune-daemon, que toca o wallpaper",
+      "app": "App",
+      "app_help": "solune, com a janela e a bandeja",
+      "webview": "Interface",
+      "webview_help_one": "{{count}} processo da webview",
+      "webview_help_other": "{{count}} processos da webview",
+      "other": "Outros",
+      "other_help_one": "{{count}} processo aberto pelo app, como o ffmpeg das miniaturas",
+      "other_help_other": "{{count}} processos abertos pelo app, como o ffmpeg das miniaturas",
+      "total": "Total",
+      "pss": "Soma da PSS de cada processo. A memória que eles dividem, como as bibliotecas, é repartida entre quem a usa e entra uma vez só. O monitor do sistema mede cada processo do seu jeito e pode mostrar outro número.",
+      "rss": "Soma da RSS de cada processo, porque o sistema não deixou ler a PSS. A memória que eles dividem, como as bibliotecas, entra uma vez em cada processo, então o total fica acima do real.",
+      "hidden": "Fechar a janela só esconde o app na bandeja: o app e a interface continuam na memória. Sair do Solune pela bandeja encerra tudo."
+    },
     "when": "Quando pausar",
     "pause_on_fullscreen": {
       "label": "Pausar quando um app estiver em tela cheia",
@@ -133,7 +150,7 @@
     "pair_dark": "Par para o tema escuro",
     "no_pair": "Nenhum",
     "cost": "Custo agora",
-    "ram": "{{value}} MB de RAM",
+    "ram": "{{value}} MiB de RAM no player",
     "decode_cpu": "Decodificado pelo processador.",
     "decode_gpu": "Decodificado pela placa de vídeo ({{hwdec}}).",
     "apply_again": "Aplicar de novo",

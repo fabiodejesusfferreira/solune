@@ -2,6 +2,13 @@
 
 Segue o [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão começa com 0, a interface e o protocolo do daemon podem mudar entre versões.
 
+## [Não publicado]
+
+### Mudou
+- A RAM em Regras e desempenho agora soma todos os processos do Solune: o player (daemon), o app e os processos da webview. Antes era só a RSS do daemon. Um detalhe por processo mostra o que entra no total.
+- A memória é medida pela PSS, que reparte entre os processos a memória que eles dividem. Se o sistema não deixar ler a PSS de algum processo, todos entram pela RSS, e a tela avisa que o total fica acima do real. Só no Linux; no Windows a RAM aparece como —.
+- Memória em MiB, a mesma unidade do monitor do sistema.
+
 ## [0.1.0] - 2026-10-25
 
 Primeira versão publicada. Só Linux.

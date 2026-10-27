@@ -1,7 +1,7 @@
 [package]
 name = "solune-core"
 version = "0.1.0"
-description = "Lógica do Solune que roda sem GPU nem compositor: política de pausa"
+description = "Lógica do Solune que roda sem GPU nem compositor: política de pausa e medida de memória"
 publish = false
 edition.workspace = true
 rust-version.workspace = true
@@ -13,3 +13,4 @@ workspace = true
 
 [dependencies]
 solune-ipc = { workspace = true, default-features = false }
+serde.workspace = true

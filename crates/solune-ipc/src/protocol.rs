@@ -247,7 +247,8 @@ pub struct Usage {
     pub cpu_permille: Option<u32>,
     /// Fração do tempo em que a GPU trabalhou para o daemon, em milésimos.
     pub gpu_permille: Option<u32>,
-    /// Memória residente do processo.
+    /// Memória do processo: a PSS, que divide a parte compartilhada com
+    /// outros processos, ou a RSS se o sistema não deixar ler a PSS.
     pub memory_bytes: Option<u64>,
     /// Memória que a GPU reservou para o daemon (na integrada, sai da RAM).
     pub gpu_memory_bytes: Option<u64>,
@@ -255,6 +256,10 @@ pub struct Usage {
     pub fps: Option<u32>,
     /// O decodificador foi liberado depois de muito tempo em pausa.
     pub released: bool,
+    /// Pid do daemon, para o app somar a memória de todos os processos do
+    /// Solune sem contar o daemon duas vezes quando ele é filho do app.
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 /// Erro com código estável. Cada um tem texto em `error.<código>`, exceto

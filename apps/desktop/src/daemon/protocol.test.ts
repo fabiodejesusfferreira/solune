@@ -59,8 +59,11 @@ describe("contrato com o protocolo do Rust", () => {
       gpu_memory_bytes: 48234496,
       fps: 30,
       released: false,
+      pid: 4242,
     });
     expect(parseUsage(usage.unknown).cpu_permille).toBeNull();
+    const { pid: _, ...older } = usage.playing;
+    expect(parseUsage(older).pid).toBeNull();
   });
 
   it("tem os mesmos códigos de erro e de pausa do Rust", () => {

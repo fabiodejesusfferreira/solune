@@ -85,6 +85,8 @@ export interface Usage {
   fps: number | null;
   /** O decodificador foi liberado depois de muito tempo em pausa. */
   released: boolean;
+  /** Pid do daemon, para o app medir a memória de cada processo do Solune. */
+  pid: number | null;
 }
 
 export type DaemonEvent =
@@ -200,7 +202,8 @@ export function parseUsage(value: unknown): Usage {
     nullableCount(value.memory_bytes) &&
     nullableCount(value.gpu_memory_bytes) &&
     nullableCount(value.fps) &&
-    typeof value.released === "boolean"
+    typeof value.released === "boolean" &&
+    (value.pid === undefined || nullableCount(value.pid))
   ) {
     return {
       cpu_permille: value.cpu_permille,
@@ -209,6 +212,8 @@ export function parseUsage(value: unknown): Usage {
       gpu_memory_bytes: value.gpu_memory_bytes,
       fps: value.fps,
       released: value.released,
+      // Daemon anterior ao campo: o app mede sem ele.
+      pid: value.pid ?? null,
     };
   }
   throw new ProtocolError(`uso inválido: ${JSON.stringify(value)}`);

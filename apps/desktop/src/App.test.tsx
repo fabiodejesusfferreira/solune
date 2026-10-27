@@ -5,6 +5,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { App } from "./App";
+import type { AppMemory } from "./daemon/api";
 import type { Policy, Status, Usage } from "./daemon/protocol";
 import { useDaemon } from "./daemon/store";
 import { useLibrary } from "./library/store";
@@ -35,6 +36,16 @@ const usage: Usage = {
   gpu_memory_bytes: 48234496,
   fps: 30,
   released: false,
+  pid: 4242,
+};
+const memory: AppMemory = {
+  metric: "pss",
+  daemon: 120 * 2 ** 20,
+  app: 100 * 2 ** 20,
+  webview: 200 * 2 ** 20,
+  webview_processes: 2,
+  other: null,
+  other_processes: 0,
 };
 
 type Handler = (cmd: string, args: Record<string, unknown>) => unknown;
@@ -60,6 +71,9 @@ function backend(overrides: Record<string, Handler> = {}) {
       }
       if (cmd === "daemon_usage") {
         return usage;
+      }
+      if (cmd === "app_memory") {
+        return memory;
       }
       if (cmd === "plugin:autostart|is_enabled") {
         return false;
@@ -294,13 +308,49 @@ describe("regras e desempenho", () => {
     // 49 milésimos de um núcleo em 4 núcleos lógicos.
     expect(await screen.findByText("1,2%")).toBeInTheDocument();
     expect(screen.getByText("10,6%")).toBeInTheDocument();
-    expect(screen.getByText("158 MB")).toBeInTheDocument();
-    expect(screen.getByText("46 MB")).toBeInTheDocument();
+    expect(screen.getByText("46 MiB")).toBeInTheDocument();
     expect(screen.getByText("30 fps")).toBeInTheDocument();
     expect(screen.getByText("pico de 1,2%")).toBeInTheDocument();
     expect(screen.getByRole("navigation")).toContainElement(
       screen.getByRole("button", { name: "Regras e desempenho", current: "page" }),
     );
+  });
+
+  it("soma a RAM do player, do app e da webview e diz como mediu", async () => {
+    const calls = backend();
+    await openRules();
+    expect(await screen.findAllByText("420 MiB")).toHaveLength(2);
+    expect(screen.getByText("120 MiB")).toBeInTheDocument();
+    expect(screen.getByText("100 MiB")).toBeInTheDocument();
+    expect(screen.getByText("200 MiB")).toBeInTheDocument();
+    expect(screen.getByText("2 processos da webview")).toBeInTheDocument();
+    expect(screen.queryByText("Outros")).not.toBeInTheDocument();
+    expect(screen.getByText(/^Soma da PSS de cada processo/)).toBeInTheDocument();
+    expect(calls).toContainEqual({ cmd: "app_memory", args: { daemonPid: 4242 } });
+  });
+
+  it("avisa quando a soma é pela RSS e mostra outros processos do app", async () => {
+    backend({
+      app_memory: () => ({ ...memory, metric: "rss", other: 10 * 2 ** 20, other_processes: 1 }),
+    });
+    await openRules();
+    expect(await screen.findAllByText("430 MiB")).toHaveLength(2);
+    expect(
+      screen.getByText("1 processo aberto pelo app, como o ffmpeg das miniaturas"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^Soma da RSS de cada processo/)).toBeInTheDocument();
+  });
+
+  it("mede o app e a webview sem o daemon", async () => {
+    const calls = backend({
+      daemon_usage: () => {
+        throw "offline";
+      },
+      app_memory: () => ({ ...memory, daemon: null }),
+    });
+    await openRules();
+    expect(await screen.findAllByText("300 MiB")).toHaveLength(2);
+    expect(calls).toContainEqual({ cmd: "app_memory", args: { daemonPid: null } });
   });
 
   it("mostra traço quando o sistema não informa um número", async () => {

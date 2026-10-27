@@ -404,6 +404,7 @@ impl Player {
             gpu_memory_bytes: reading.gpu_memory_bytes,
             fps,
             released: self.released.is_some(),
+            pid: Some(std::process::id()),
         }
     }
 
