@@ -4,7 +4,7 @@ import { type LibraryItem, useLibrary } from "./store";
 
 /** Miniatura de um wallpaper: um quadro do vídeo (gerado no app), ou a imagem. */
 export function Thumb({ item, className }: { item: LibraryItem | undefined; className?: string }) {
-  const allowed = useLibrary((state) => (item ? state.allowed.includes(item.path) : false));
+  const allowed = useLibrary((state) => (item ? state.allowed[item.path] === true : false));
   const thumb = useLibrary((state) => (item ? state.thumbs[item.path] : undefined));
   const update = useLibrary((state) => state.update);
   const file = item?.kind === "video" ? thumb : allowed ? item?.path : undefined;

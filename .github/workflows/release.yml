@@ -47,3 +47,11 @@ jobs:
           gh release create "$GITHUB_REF_NAME" $flags --title "Solune $GITHUB_REF_NAME" \
             --notes "${notes:-Veja o CHANGELOG.md.}" \
             target/release/bundle/deb/*.deb target/release/bundle/deb/SHA256SUMS
+
+  windows:
+    name: Instalador Windows
+    needs: deb
+    uses: ./.github/workflows/windows.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

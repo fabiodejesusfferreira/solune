@@ -1,0 +1,135 @@
+name: Windows
+
+# Gera o instalador .exe (NSIS) e, se houver certificado, assina. Roda pela
+# Release (workflow_call) ou à mão, em Actions > Windows > Run workflow.
+# Com `tag`, o instalador é anexado a essa Release; sem ela, fica só como
+# artefato do job.
+#
+# Assinatura: cadastre em Settings > Secrets and variables > Actions
+#   WINDOWS_CERTIFICATE           o .pfx em base64 (`base64 -w0 cert.pfx`)
+#   WINDOWS_CERTIFICATE_PASSWORD  a senha do .pfx
+# Sem os dois, o instalador sai sem assinatura e o SmartScreen avisa.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag da Release que recebe o instalador (vazio: só artefato)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  # libmpv LGPL para Windows (zhongfly/mpv-winbuild), fixado pela tag e pelo hash.
+  MPV_BUILD: 2026-10-29-6ee40e64d3
+  MPV_ARCHIVE: mpv-dev-lgpl-x86_64-20261029-git-6ee40e64d3.7z
+  MPV_SHA256: 0dca96400dfddecb74db5386a8fa0e2ee263748e11c8c069e46bd9bdac56c58b
+  TIMESTAMP_URL: http://timestamp.digicert.com
+
+jobs:
+  nsis:
+    name: Instalador .exe (NSIS)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # O Git Bash trocaria argumentos como /def: e /sha1 por caminhos.
+      MSYS_NO_PATHCONV: "1"
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # O `lib` e o `signtool` vêm do ambiente do Visual Studio.
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: libmpv (biblioteca de importação e DLL)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir mpv && cd mpv
+          gh release download "$MPV_BUILD" -R zhongfly/mpv-winbuild -p "$MPV_ARCHIVE"
+          echo "$MPV_SHA256  $MPV_ARCHIVE" | sha256sum -c -
+          7z x -y "$MPV_ARCHIVE" libmpv-2.dll
+          node ../scripts/mpv-def.mjs libmpv-2.dll mpv.def
+          lib /nologo /def:mpv.def /machine:x64 /out:mpv.lib
+          mkdir -p ../apps/desktop/src-tauri/binaries
+          cp libmpv-2.dll ../apps/desktop/src-tauri/binaries/
+          echo "MPV_LIB_DIR=$(pwd -W)" >> "$GITHUB_ENV"
+
+      - name: Certificado de assinatura
+        if: env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath "$env:RUNNER_TEMP\cert.pfx" -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx"
+          "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+      - run: pnpm tokens
+      - run: node scripts/stage-daemon.mjs
+
+      # O Tauri assina o app e o instalador; o daemon (sidecar) é assinado aqui.
+      - name: Assinar o daemon
+        if: env.CERT_THUMBPRINT != ''
+        shell: bash
+        run: signtool sign /sha1 "$CERT_THUMBPRINT" /fd sha256 /tr "$TIMESTAMP_URL" /td sha256 apps/desktop/src-tauri/binaries/solune-daemon-*.exe
+
+      # Config do build: a do pacote + a DLL do libmpv ao lado do exe + a assinatura.
+      - name: Build do instalador
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const base = JSON.parse(fs.readFileSync("apps/desktop/src-tauri/tauri.bundle.json", "utf8"));
+            const windows = process.env.CERT_THUMBPRINT
+              ? { certificateThumbprint: process.env.CERT_THUMBPRINT, digestAlgorithm: "sha256", timestampUrl: process.env.TIMESTAMP_URL }
+              : {};
+            base.bundle.resources = { "binaries/libmpv-2.dll": "libmpv-2.dll" };
+            base.bundle.windows = windows;
+            fs.writeFileSync("apps/desktop/src-tauri/tauri.ci.json", JSON.stringify(base));
+          '
+          pnpm --filter @solune/desktop tauri build --config src-tauri/tauri.ci.json --bundles nsis
+
+      - name: Conferir a assinatura
+        if: env.CERT_THUMBPRINT != ''
+        shell: pwsh
+        run: |
+          Get-ChildItem target\release\bundle\nsis\*.exe | ForEach-Object {
+            $s = Get-AuthenticodeSignature $_
+            "$($_.Name): $($s.Status)"
+            if ($s.Status -ne 'Valid') { exit 1 }
+          }
+
+      - name: Soma de verificação
+        shell: bash
+        run: |
+          cd target/release/bundle/nsis
+          sha256sum *.exe | tee SHA256SUMS-windows.txt
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: solune-windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/SHA256SUMS-windows.txt
+
+      - name: Anexar à Release
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" target/release/bundle/nsis/*.exe target/release/bundle/nsis/SHA256SUMS-windows.txt --clobber

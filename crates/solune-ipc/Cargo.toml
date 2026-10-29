@@ -1,6 +1,6 @@
 [package]
 name = "solune-ipc"
-version = "0.1.0"
+version = "0.1.1"
 description = "Protocolo entre o app do Solune e o daemon: mensagens, versão, framing e transporte"
 publish = false
 edition.workspace = true

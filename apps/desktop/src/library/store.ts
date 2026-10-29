@@ -40,7 +40,7 @@ interface LibraryState {
   items: LibraryItem[];
   carousel: Carousel;
   /** Arquivos já liberados para o protocolo `asset:` nesta sessão. Não é salvo. */
-  allowed: string[];
+  allowed: Record<string, true>;
   /** Miniatura JPEG de cada vídeo, pelo caminho do vídeo. Não é salvo. */
   thumbs: Record<string, string>;
   /** Acrescenta os arquivos novos. Devolve quantos entraram. */
@@ -94,7 +94,7 @@ export const useLibrary = create<LibraryState>()(
       return {
         items: [],
         carousel: { paths: [], every_minutes: 30, shuffle: false, on: false },
-        allowed: [],
+        allowed: {},
         thumbs: {},
         add: (paths) => {
           const known = new Set(get().items.map((item) => item.path));
@@ -182,7 +182,9 @@ export function useAllowMedia() {
       (sizes) => {
         const { allowed, update } = useLibrary.getState();
         // A miniatura só pede o arquivo depois de liberado; antes, o asset: recusa.
-        useLibrary.setState({ allowed: [...allowed, ...pending] });
+        useLibrary.setState({
+          allowed: { ...allowed, ...Object.fromEntries(pending.map((p) => [p, true])) },
+        });
         sizes.forEach((size, i) => {
           if (size !== null) {
             update(pending[i] ?? "", { size });
