@@ -1,12 +1,16 @@
 //! Uso de recursos do próprio processo, para a tela Regras e desempenho.
 //!
-//! No Linux, CPU e memória vêm de `/proc/self`, e a GPU vem do fdinfo do
+//! No Linux, a CPU vem de `/proc/self`, a memória vem de
+//! `solune_core::memory` (PSS, ou RSS se o sistema não deixar ler) e a GPU
+//! vem do fdinfo do
 //! DRM (`/proc/self/fdinfo`), que os drivers i915, xe e amdgpu publicam por
 //! processo. CPU e GPU são medidas entre uma leitura e a seguinte, então a
 //! primeira leitura não tem esses dois números.
 
 use std::collections::HashMap;
 use std::time::Instant;
+
+use solune_core::memory;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Reading {
@@ -33,7 +37,8 @@ impl Sampler {
     pub fn read(&mut self) -> Reading {
         let drm = linux::drm();
         let mut reading = Reading {
-            memory_bytes: linux::memory_bytes(),
+            memory_bytes: memory::measure(&[std::process::id()])
+                .and_then(|(_, bytes)| bytes.first().copied().flatten()),
             gpu_memory_bytes: drm.memory_bytes,
             ..Reading::default()
         };
@@ -160,14 +165,6 @@ mod linux {
         Some(utime + stime)
     }
 
-    pub fn memory_bytes() -> Option<u64> {
-        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
-        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
-        // SAFETY: sysconf não tem pré-condições.
-        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        (page > 0).then(|| pages * page as u64)
-    }
-
     /// Soma os clientes DRM do processo, contando cada um uma vez (vários
     /// descritores podem apontar para o mesmo cliente).
     pub fn drm() -> Drm {
@@ -206,10 +203,6 @@ mod linux {
     }
 
     pub fn cpu_ticks() -> Option<u64> {
-        None
-    }
-
-    pub fn memory_bytes() -> Option<u64> {
         None
     }
 

@@ -238,14 +238,14 @@ function useVideoSrc(path: string, enabled: boolean, size: number | undefined): 
 function Cost({ usage, hwdec }: { usage: UsageHistory; hwdec: string | null }) {
   const { t, i18n } = useTranslation();
   const u = usage.usage;
+  // A memória do player, medida como na tela de desempenho.
+  const ram = usage.memory?.daemon ?? u?.memory_bytes;
   const number = (value: number) =>
     value.toLocaleString(i18n.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const parts = [
     u?.cpu_permille != null ? `CPU ${number(u.cpu_permille / 10 / logicalCores())}%` : null,
     u?.gpu_permille != null ? `GPU ${number(u.gpu_permille / 10)}%` : null,
-    u?.memory_bytes != null
-      ? t("detail.ram", { value: Math.round(u.memory_bytes / 2 ** 20) })
-      : null,
+    ram != null ? t("detail.ram", { value: Math.round(ram / 2 ** 20) }) : null,
   ].filter(Boolean);
   return (
     <div className="inset stack-2">

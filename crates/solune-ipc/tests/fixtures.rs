@@ -54,6 +54,7 @@ fn fixtures() -> Vec<(&'static str, Value)> {
                     gpu_memory_bytes: Some(48_234_496),
                     fps: Some(30),
                     released: false,
+                    pid: Some(4242),
                 }),
                 "unknown": to_value(&Usage::default()),
             }),

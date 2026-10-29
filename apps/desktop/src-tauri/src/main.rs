@@ -10,6 +10,7 @@
 mod daemon;
 mod i18n;
 mod media;
+mod memory;
 mod tray;
 
 use tauri::{Manager, WindowEvent};
@@ -53,6 +54,7 @@ fn main() {
             media::media_list,
             media::media_thumb,
             media::desktop_session,
+            memory::app_memory,
         ])
         .setup(|app| {
             tray::create(app.handle())?;

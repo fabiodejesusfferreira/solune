@@ -26,6 +26,25 @@ export const daemon = {
   stop: () => invoke<void>("daemon_stop"),
 };
 
+/** Memória de cada parte do Solune, em bytes; `null` onde a parte não existe agora. */
+export interface AppMemory {
+  /** `pss` divide a memória compartilhada entre os processos; `rss` conta inteira em cada um. */
+  metric: "pss" | "rss";
+  daemon: number | null;
+  app: number | null;
+  webview: number | null;
+  webview_processes: number;
+  other: number | null;
+  other_processes: number;
+}
+
+/**
+ * Mede o app, os filhos dele (a webview) e o daemon pelo pid; `null` fora do
+ * Linux (`src-tauri/src/memory.rs`).
+ */
+export const appMemory = (daemonPid: number | null) =>
+  invoke<AppMemory | null>("app_memory", { daemonPid });
+
 /** Libera os arquivos para miniaturas e prévia, e devolve o tamanho de cada um (`src-tauri/src/media.rs`). */
 export const mediaAllow = (paths: string[]) => invoke<(number | null)[]>("media_allow", { paths });
 

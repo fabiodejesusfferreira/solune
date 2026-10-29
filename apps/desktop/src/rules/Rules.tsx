@@ -1,11 +1,12 @@
 import { Chip, Toggle } from "@solune/ui";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
+import type { AppMemory } from "../daemon/api";
 import { ConnectionNotice } from "../daemon/ConnectionNotice";
 import type { Conditions, SettingName } from "../daemon/protocol";
 import { useDaemon } from "../daemon/store";
 import { useAutostart } from "./autostart";
-import { historySize, logicalCores, type UsageHistory } from "./usage";
+import { historySize, logicalCores, totalMemory, type UsageHistory } from "./usage";
 
 export function Rules({ usage }: { usage: UsageHistory }) {
   const { t } = useTranslation();
@@ -31,7 +32,7 @@ export function Rules({ usage }: { usage: UsageHistory }) {
 function UsageNow({ history }: { history: UsageHistory }) {
   const { t, i18n } = useTranslation();
   const status = useDaemon((state) => state.status);
-  const { usage, cpu } = history;
+  const { usage, memory, cpu } = history;
   const number = (value: number, digits: number) =>
     value.toLocaleString(i18n.language, {
       minimumFractionDigits: digits,
@@ -40,13 +41,12 @@ function UsageNow({ history }: { history: UsageHistory }) {
   const cores = logicalCores();
   const percent = (permille: number | null | undefined, divisor = 1) =>
     permille == null ? null : `${number(permille / 10 / divisor, 1)}%`;
-  const megabytes = (bytes: number | null | undefined) =>
-    bytes == null ? null : `${number(bytes / 2 ** 20, 0)} MB`;
+  const megabytes = (bytes: number | null | undefined) => mebibytes(bytes, number);
 
   const metrics: { label: string; value: string | null }[] = [
     { label: t("rules.usage.cpu"), value: percent(usage?.cpu_permille, cores) },
     { label: t("rules.usage.gpu"), value: percent(usage?.gpu_permille) },
-    { label: t("rules.usage.memory"), value: megabytes(usage?.memory_bytes) },
+    { label: t("rules.usage.memory"), value: megabytes(totalMemory(memory)) },
     { label: t("rules.usage.gpu_memory"), value: megabytes(usage?.gpu_memory_bytes) },
     {
       label: t("rules.usage.fps"),
@@ -90,11 +90,89 @@ function UsageNow({ history }: { history: UsageHistory }) {
         <p className="rules__muted text-caption">{t("rules.usage.unknown")}</p>
       ) : null}
 
+      {memory ? <MemoryParts memory={memory} format={megabytes} /> : null}
+
       <CpuChart
         samples={cpu.map((permille) => permille / 10 / cores)}
         format={(value) => `${number(value, 1)}%`}
       />
     </section>
+  );
+}
+
+/** Bytes em MiB, a mesma unidade do monitor do sistema. */
+export function mebibytes(
+  bytes: number | null | undefined,
+  number: (value: number, digits: number) => string,
+): string | null {
+  return bytes == null ? null : `${number(bytes / 2 ** 20, 0)} MiB`;
+}
+
+/** O que entra no total de RAM, processo por processo, e como foi medido. */
+function MemoryParts({
+  memory,
+  format,
+}: {
+  memory: AppMemory;
+  format: (bytes: number | null) => string | null;
+}) {
+  const { t } = useTranslation();
+  const parts = [
+    {
+      key: "daemon",
+      label: t("rules.memory.daemon"),
+      help: t("rules.memory.daemon_help"),
+      bytes: memory.daemon,
+    },
+    {
+      key: "app",
+      label: t("rules.memory.app"),
+      help: t("rules.memory.app_help"),
+      bytes: memory.app,
+    },
+    {
+      key: "webview",
+      label: t("rules.memory.webview"),
+      help: t("rules.memory.webview_help", { count: memory.webview_processes }),
+      bytes: memory.webview,
+    },
+    // Só aparece enquanto existe, como o ffmpeg de uma miniatura.
+    ...(memory.other_processes > 0
+      ? [
+          {
+            key: "other",
+            label: t("rules.memory.other"),
+            help: t("rules.memory.other_help", { count: memory.other_processes }),
+            bytes: memory.other,
+          },
+        ]
+      : []),
+  ];
+  return (
+    <div className="rules__parts">
+      <h3 id="memory-title" className="text-label rules__muted">
+        {t("rules.memory.title")}
+      </h3>
+      <dl aria-labelledby="memory-title">
+        {parts.map((part) => (
+          <div key={part.key} className="rules__part">
+            <dt>
+              <span className="text-body">{part.label}</span>
+              <span className="rules__muted text-caption">{part.help}</span>
+            </dt>
+            <dd className="rules__data">{format(part.bytes) ?? "—"}</dd>
+          </div>
+        ))}
+        <div className="rules__part rules__part--total">
+          <dt className="text-body-strong">{t("rules.memory.total")}</dt>
+          <dd className="rules__data">{format(totalMemory(memory)) ?? "—"}</dd>
+        </div>
+      </dl>
+      <p className="rules__muted text-caption">
+        {memory.metric === "pss" ? t("rules.memory.pss") : t("rules.memory.rss")}
+      </p>
+      <p className="rules__muted text-caption">{t("rules.memory.hidden")}</p>
+    </div>
   );
 }
 

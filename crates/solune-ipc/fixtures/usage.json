@@ -5,6 +5,7 @@
     "gpu_memory_bytes": 48234496,
     "gpu_permille": 106,
     "memory_bytes": 165216256,
+    "pid": 4242,
     "released": false
   },
   "unknown": {
@@ -13,6 +14,7 @@
     "gpu_memory_bytes": null,
     "gpu_permille": null,
     "memory_bytes": null,
+    "pid": null,
     "released": false
   }
 }

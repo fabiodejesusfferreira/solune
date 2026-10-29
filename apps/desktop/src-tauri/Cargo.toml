@@ -16,6 +16,7 @@ tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 solune-ipc.workspace = true
+solune-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.5", features = ["tray-icon", "image-png", "protocol-asset"] }

@@ -3448,6 +3448,7 @@ dependencies = [
 name = "solune-core"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "solune-ipc",
 ]
 
@@ -3482,6 +3483,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "solune-core",
  "solune-ipc",
  "tauri",
  "tauri-build",
