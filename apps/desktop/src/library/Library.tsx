@@ -1,6 +1,6 @@
 import { Button, Chip, WallpaperCard } from "@solune/ui";
 import { Pause, Play, Plus, Square, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { daemon } from "../daemon/api";
 import { ConnectionNotice } from "../daemon/ConnectionNotice";
@@ -15,7 +15,8 @@ type Filter = (typeof filters)[number];
 const matches = (item: LibraryItem, filter: Filter) =>
   filter === "all" || item.kind === filter || item.theme === filter;
 
-export function Library({ onOpen }: { onOpen: (path: string) => void }) {
+// memo: o App atualiza a cada leitura de uso (1 s) e a grade não depende dela.
+export const Library = memo(function Library({ onOpen }: { onOpen: (path: string) => void }) {
   const { t, i18n } = useTranslation();
   const items = useLibrary((state) => state.items);
   const remove = useLibrary((state) => state.remove);
@@ -119,7 +120,7 @@ export function Library({ onOpen }: { onOpen: (path: string) => void }) {
       ) : null}
     </main>
   );
-}
+});
 
 /** O wallpaper em uso, com os controles do player. */
 function NowPlaying({ onOpen }: { onOpen: (path: string) => void }) {

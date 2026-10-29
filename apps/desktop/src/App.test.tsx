@@ -104,7 +104,7 @@ beforeEach(() => {
   localStorage.clear();
   useLibrary.setState({
     items: [],
-    allowed: [],
+    allowed: {},
     thumbs: {},
     carousel: { paths: [], every_minutes: 30, shuffle: false, on: false },
   });

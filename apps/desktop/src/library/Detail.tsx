@@ -158,7 +158,7 @@ export function Detail({ path, usage, onBack }: DetailProps) {
 
 /** Prévia em tamanho grande. O vídeo toca mudo aqui; o som é do wallpaper. */
 function Preview({ path, kind }: { path: string; kind: "video" | "image" }) {
-  const allowed = useLibrary((state) => state.allowed.includes(path));
+  const allowed = useLibrary((state) => state.allowed[path] === true);
   const [time, setTime] = useState({ at: 0, total: 0 });
   const item = useLibrary((state) => state.items.find((i) => i.path === path));
   const src = useVideoSrc(path, kind === "video" && allowed, item?.size);
