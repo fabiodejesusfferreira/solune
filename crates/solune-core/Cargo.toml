@@ -1,6 +1,6 @@
 [package]
 name = "solune-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lógica do Solune que roda sem GPU nem compositor: política de pausa e medida de memória"
 publish = false
 edition.workspace = true

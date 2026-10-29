@@ -1,6 +1,6 @@
 [package]
 name = "solune-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "App do Solune: janela, bandeja e ponte com o daemon"
 publish = false
 edition.workspace = true
