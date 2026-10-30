@@ -89,7 +89,7 @@ jobs:
         run: signtool sign /sha1 "$CERT_THUMBPRINT" /fd sha256 /tr "$TIMESTAMP_URL" /td sha256 apps/desktop/src-tauri/binaries/solune-daemon-*.exe
 
       # Config do build: a do pacote + a DLL do libmpv ao lado do exe + a assinatura.
-      - name: Build do instalador
+      - name: Config do build
         shell: bash
         run: |
           node -e '
@@ -102,7 +102,11 @@ jobs:
             base.bundle.windows = windows;
             fs.writeFileSync("apps/desktop/src-tauri/tauri.ci.json", JSON.stringify(base));
           '
-          pnpm --filter @solune/desktop tauri build --config src-tauri/tauri.ci.json --bundles nsis
+
+      # No Git Bash, o link.exe do Git vem antes do do MSVC no PATH.
+      - name: Build do instalador
+        shell: pwsh
+        run: pnpm --filter @solune/desktop tauri build --config src-tauri/tauri.ci.json --bundles nsis
 
       - name: Conferir a assinatura
         if: env.CERT_THUMBPRINT != ''
