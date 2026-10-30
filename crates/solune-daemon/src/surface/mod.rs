@@ -9,17 +9,19 @@
 mod gl;
 #[cfg(target_os = "linux")]
 mod layer_shell;
+#[cfg(windows)]
+mod workerw;
 #[cfg(target_os = "linux")]
 mod x11;
 
 use std::sync::Arc;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::sync::mpsc;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::thread::{self, JoinHandle};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::time::Duration;
 
 use crate::mpv::Mpv;
@@ -33,12 +35,17 @@ pub enum Kind {
     /// Janela do tipo desktop em sessões X11, como o Cinnamon.
     #[cfg(target_os = "linux")]
     X11,
+    /// Janela filha do WorkerW, atrás dos ícones da área de trabalho do Windows.
+    #[cfg(windows)]
+    WorkerW,
 }
 
 impl Kind {
     /// A superfície da sessão atual, pelo ambiente. `None` quando não há
-    /// nenhuma suportada (no Windows, até o WorkerW entrar).
+    /// nenhuma suportada.
     pub fn detect() -> Option<Self> {
+        #[cfg(windows)]
+        return Some(Self::WorkerW);
         #[cfg(target_os = "linux")]
         {
             if std::env::var_os("WAYLAND_DISPLAY").is_some() {
@@ -48,6 +55,7 @@ impl Kind {
                 return Some(Self::X11);
             }
         }
+        #[cfg(not(windows))]
         None
     }
 
@@ -57,6 +65,8 @@ impl Kind {
             Self::LayerShell => "layer-shell",
             #[cfg(target_os = "linux")]
             Self::X11 => "x11",
+            #[cfg(windows)]
+            Self::WorkerW => "workerw",
         }
     }
 }
@@ -66,11 +76,11 @@ impl Kind {
 pub type Ended = tokio::sync::mpsc::UnboundedSender<Result<(), String>>;
 
 /// Resposta de um pedido à thread da superfície.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 type Reply = mpsc::Sender<Result<(), String>>;
 
 /// Pedidos do player à thread da superfície.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[derive(Debug)]
 enum Control {
     Stop,
@@ -82,43 +92,48 @@ enum Control {
     Thaw(Reply),
 }
 
+#[cfg(target_os = "linux")]
+type ControlSender = smithay_client_toolkit::reexports::calloop::channel::Sender<Control>;
+#[cfg(windows)]
+use workerw::Sender as ControlSender;
+
 /// Superfície rodando.
 #[derive(Debug)]
 pub struct Surface {
-    #[cfg(target_os = "linux")]
-    control: Option<smithay_client_toolkit::reexports::calloop::channel::Sender<Control>>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
+    control: Option<ControlSender>,
+    #[cfg(any(target_os = "linux", windows))]
     join: Option<JoinHandle<()>>,
     /// A thread avisa aqui quando termina, para `shutdown` não esperar sem
     /// limite por uma thread presa.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     done: Option<mpsc::Receiver<()>>,
 }
 
 /// Quanto esperar a superfície ficar pronta (EGL e render criados).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Quanto esperar a superfície congelar ou descongelar o render.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Quanto esperar a thread da superfície terminar depois do pedido de parar.
 /// Presa no compositor ou no driver, ela fica para trás em vez de prender o
 /// daemon.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Avisa uma vez se a superfície ficou pronta ou falhou ao começar. As
 /// cópias dividem o mesmo aviso: só o primeiro `ok` ou `finish` vale.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[derive(Debug, Clone)]
 struct Ready {
     tx: mpsc::Sender<Result<(), String>>,
     sent: Arc<AtomicBool>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 impl Ready {
     fn ok(&self) {
         if !self.sent.swap(true, Ordering::AcqRel) {
@@ -147,11 +162,13 @@ impl Surface {
         hwdec_off: bool,
         ended: Ended,
     ) -> Result<Self, String> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
-            use smithay_client_toolkit::reexports::calloop::channel;
-
-            let (control_tx, control_rx) = channel::channel::<Control>();
+            #[cfg(target_os = "linux")]
+            let (control_tx, control_rx) =
+                smithay_client_toolkit::reexports::calloop::channel::channel::<Control>();
+            #[cfg(windows)]
+            let (control_tx, control_rx) = workerw::channel();
             let (ready_tx, ready_rx) = mpsc::channel();
             let (done_tx, done_rx) = mpsc::channel();
             let join = thread::Builder::new()
@@ -162,12 +179,22 @@ impl Surface {
                         sent: Arc::new(AtomicBool::new(false)),
                     };
                     let result = match kind {
+                        #[cfg(target_os = "linux")]
                         Kind::LayerShell => {
                             layer_shell::run(player, hwdec_off, ready.clone(), control_rx)
+                                .map_err(|e| e.to_string())
                         }
-                        Kind::X11 => x11::run(player, hwdec_off, ready.clone(), control_rx),
+                        #[cfg(target_os = "linux")]
+                        Kind::X11 => x11::run(player, hwdec_off, ready.clone(), control_rx)
+                            .map_err(|e| e.to_string()),
+                        #[cfg(windows)]
+                        Kind::WorkerW => {
+                            // Sem interop de decodificação: o libmpv escolhe sozinho.
+                            let _ = hwdec_off;
+                            workerw::run(player, ready.clone(), control_rx)
+                        }
                     };
-                    ready.finish(result.map_err(|e| e.to_string()), &ended);
+                    ready.finish(result, &ended);
                     let _ = done_tx.send(());
                 })
                 .map_err(|e| format!("não foi possível criar a thread da superfície: {e}"))?;
@@ -192,7 +219,7 @@ impl Surface {
                 }
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = (player, hwdec_off, ended);
             match kind {}
@@ -202,31 +229,31 @@ impl Surface {
     /// Guarda o quadro atual na tela; os quadros do libmpv param de
     /// aparecer. Espera a superfície responder.
     pub fn freeze(&self) -> Result<(), String> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         return self.request(Control::Freeze);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         Ok(())
     }
 
     /// Desliga o render do libmpv, que solta o que tinha na GPU. Só depois
     /// de `freeze` e com o arquivo parado.
     pub fn release(&self) -> Result<(), String> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         return self.request(Control::Release);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         Ok(())
     }
 
     /// Liga o render do libmpv de novo. O quadro guardado fica na tela até
     /// o primeiro quadro do vídeo.
     pub fn thaw(&self) -> Result<(), String> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         return self.request(Control::Thaw);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         Ok(())
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn request(&self, control: fn(Reply) -> Control) -> Result<(), String> {
         let (tx, rx) = mpsc::channel();
         self.control
@@ -241,7 +268,7 @@ impl Surface {
     /// Para a superfície e espera a thread terminar, por até `STOP_TIMEOUT`.
     /// O papel de parede do sistema volta a aparecer.
     pub fn shutdown(&mut self) {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             if let Some(control) = self.control.take() {
                 let _ = control.send(Control::Stop);

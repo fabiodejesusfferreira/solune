@@ -41,7 +41,9 @@ struct OpenGlFbo {
 #[derive(Debug, Clone, Copy)]
 pub enum Interop {
     None,
+    #[cfg(target_os = "linux")]
     Wayland(*mut c_void),
+    #[cfg(target_os = "linux")]
     X11(*mut c_void),
 }
 
@@ -73,7 +75,9 @@ const PARAM_API_TYPE: c_int = 1;
 const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 const PARAM_OPENGL_FBO: c_int = 3;
 const PARAM_FLIP_Y: c_int = 4;
+#[cfg(target_os = "linux")]
 const PARAM_X11_DISPLAY: c_int = 8;
+#[cfg(target_os = "linux")]
 const PARAM_WL_DISPLAY: c_int = 9;
 
 const UPDATE_FRAME: u64 = 1 << 0;
@@ -131,10 +135,12 @@ impl<W: Wakeup> RenderContext<W> {
         ];
         match interop {
             Interop::None => {}
+            #[cfg(target_os = "linux")]
             Interop::Wayland(display) => params.push(RenderParam {
                 kind: PARAM_WL_DISPLAY,
                 data: display,
             }),
+            #[cfg(target_os = "linux")]
             Interop::X11(display) => params.push(RenderParam {
                 kind: PARAM_X11_DISPLAY,
                 data: display,

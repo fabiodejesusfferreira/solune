@@ -3472,6 +3472,7 @@ dependencies = [
  "wayland-egl",
  "wayland-protocols-wlr",
  "wayland-sys",
+ "windows-sys 0.61.2",
  "x11-dl",
  "zbus",
 ]

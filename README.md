@@ -27,7 +27,7 @@ O projeto está no começo. Hoje funciona assim:
 
 - No Linux, o daemon toca um vídeo como papel de parede e pausa sozinho com um app em tela cheia, na bateria ou com a tela bloqueada.
 - O app tem duas telas, Biblioteca e Regras e desempenho, e controla o daemon.
-- No Windows, o código passa no clippy do CI, mas ainda não foi compilado por inteiro e o papel de parede não aparece.
+- No Windows, o papel de parede (WorkerW, com OpenGL pelo WGL) está escrito e passa no clippy, mas ainda não foi testado numa máquina Windows. Sem os sinais de pausa (tela cheia, bateria, bloqueio).
 
 Contexto, decisões e pesquisa estão em [`docs/Solune.md`](docs/Solune.md).
 
@@ -130,7 +130,7 @@ O daemon escolhe onde desenhar pela sessão gráfica:
 | --- | --- | --- |
 | Wayland (`WAYLAND_DISPLAY`) | Camada de fundo do layer-shell: KDE Plasma 6 e wlroots (Sway, Hyprland) | Testado só num Sway 1.9 sem tela, com renderização por software |
 | X11 (`DISPLAY`) | Janela do tipo área de trabalho, como no Cinnamon do Linux Mint | Testado no Linux Mint com Cinnamon: ícones da área de trabalho por cima, VA-API em uso |
-| Windows | WorkerW | Ainda não implementado: `play` responde `surface_unavailable` |
+| Windows | WorkerW | Implementado, ainda não testado em Windows real |
 
 `--hwdec` repassa o modo de decodificação ao mpv (padrão `auto-safe`; `no` desliga a aceleração). `--headless` toca sem tela (`vo=null`), para testes. O socket fica em `$XDG_RUNTIME_DIR/solune/daemon.sock`, e `SOLUNE_SOCKET` troca o caminho. Ao lado dele fica o `daemon.lock`, que garante um daemon só por usuário. No Linux, o daemon iniciado pelo app herda o stderr do app, onde saem os logs (`RUST_LOG` ajusta o nível); no Windows, vão para `%APPDATA%\Solune\daemon.log`.
 

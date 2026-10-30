@@ -14,7 +14,7 @@ mod config;
 mod icons;
 mod mpv;
 mod player;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod render;
 mod server;
 mod show;

@@ -95,7 +95,7 @@ O AppImage para ARM só sai de uma máquina ARM: o `linuxdeploy` não faz compil
 
 ## Windows: exe (NSIS) e msi (WiX)
 
-O Windows ainda não toca o papel de parede (o WorkerW não foi implementado), e o CI só roda o clippy no Windows, sem linkar. Então nada disto foi testado: é o caminho previsto.
+A superfície WorkerW (`surface/workerw.rs`) está implementada, mas só foi checada pelo clippy; ainda não rodou num Windows. Se o vídeo não aparecer, veja `%APPDATA%\Solune\daemon.log`.
 
 ### Preparar
 
