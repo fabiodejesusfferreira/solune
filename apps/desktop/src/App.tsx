@@ -1,3 +1,4 @@
+import { version } from "../package.json";
 import { Logo } from "@solune/ui";
 import { listen } from "@tauri-apps/api/event";
 import { Gauge, LayoutGrid, Monitor, Moon, Sun } from "lucide-react";
@@ -90,6 +91,7 @@ export function App() {
           </ul>
         </nav>
         <NowPlayingCard usage={usage} />
+        <p className="app__version text-caption">{t("nav.version", { version })}</p>
       </aside>
       {screen === "library" && detail ? (
         <Detail path={detail} usage={usage} onBack={() => setDetail(null)} />

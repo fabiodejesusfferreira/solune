@@ -8,7 +8,8 @@
     "rules": "Regras e desempenho",
     "monitors": "Monitores",
     "themes": "Claro e escuro",
-    "dark_mode": "Modo escuro do app"
+    "dark_mode": "Modo escuro do app",
+    "version": "Versão {{version}}"
   },
   "library": {
     "title": "Biblioteca",

@@ -8,6 +8,17 @@ use std::process::{Command, Stdio};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+/// Sem isto, cada `ffmpeg` e `ffprobe` abre e fecha uma janela preta de console no Windows.
+fn quiet(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// Extensões que a biblioteca aceita, as mesmas de `library/store.ts`.
 const MEDIA: &[&str] = &[
     "mp4", "webm", "mkv", "mov", "m4v", "png", "jpg", "jpeg", "webp",
@@ -94,7 +105,7 @@ pub fn media_thumb(app: AppHandle, path: PathBuf) -> Option<Thumb> {
     if !thumb.is_file() {
         // shortcut: 1 s fixo; um vídeo mais curto fica sem miniatura, trocar por
         // metade da duração se isso aparecer.
-        let ok = Command::new("ffmpeg")
+        let ok = quiet(&mut Command::new("ffmpeg"))
             .args(["-v", "error", "-y", "-ss", "1", "-i"])
             .arg(&path)
             .args(["-frames:v", "1", "-vf", "scale=440:-2", "-q:v", "4"])
@@ -117,7 +128,7 @@ pub fn media_thumb(app: AppHandle, path: PathBuf) -> Option<Thumb> {
 
 /// Largura, altura e duração pelo `ffprobe`.
 fn probe(path: &Path) -> Option<(u32, u32, f64)> {
-    let out = Command::new("ffprobe")
+    let out = quiet(&mut Command::new("ffprobe"))
         .args(["-v", "error", "-select_streams", "v:0"])
         .args(["-show_entries", "stream=width,height:format=duration"])
         .args(["-of", "default=nw=1"])

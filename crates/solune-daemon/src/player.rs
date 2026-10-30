@@ -190,7 +190,8 @@ impl Player {
         };
         let settings = config.store.settings();
         let mpv = Arc::new(Mpv::new(&[
-            ("terminal", "yes"),
+            // No Windows o daemon não tem console: o libmpv não deve tentar abrir um.
+            ("terminal", if cfg!(windows) { "no" } else { "yes" }),
             ("msg-level", "all=warn"),
             ("idle", "yes"),
             ("vo", vo),
