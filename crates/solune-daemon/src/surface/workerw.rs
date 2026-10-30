@@ -162,10 +162,12 @@ fn find_parent() -> Result<(HWND, bool), String> {
         let mut workerw: HWND = null_mut();
         EnumWindows(Some(find_workerw), (&raw mut workerw) as LPARAM);
         if !workerw.is_null() {
+            tracing::info!("pai: WorkerW de cima dos ícones ({workerw:?})");
             return Ok((workerw, false));
         }
         // 24H2 e 25H2: o WorkerW do papel de parede é filho do Progman, e a
         // janela vai para o Progman, logo abaixo dos ícones.
+        tracing::info!("pai: Progman ({progman:?}), estilo 24H2");
         Ok((progman, true))
     }
 }
@@ -236,9 +238,13 @@ impl Window {
                 context: null_mut(),
             };
             if bottom {
+                // Abaixo dos ícones e acima do WorkerW que pinta o papel de parede.
+                let icons = FindWindowExW(parent, null_mut(), w!("SHELLDLL_DefView"), null());
+                tracing::info!("ícones (SHELLDLL_DefView) no pai: {icons:?}");
+                let after = if icons.is_null() { HWND_BOTTOM } else { icons };
                 SetWindowPos(
                     hwnd,
-                    HWND_BOTTOM,
+                    after,
                     0,
                     0,
                     0,
