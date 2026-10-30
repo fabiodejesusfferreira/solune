@@ -141,7 +141,7 @@ unsafe extern "system" fn find_workerw(top: HWND, out: LPARAM) -> i32 {
     1
 }
 
-/// A janela pai do vídeo e se ela é o Progman (Windows 11 24H2).
+/// A janela pai do vídeo e se ela é o Progman (Windows 11 24H2 em diante).
 fn find_parent() -> Result<(HWND, bool), String> {
     // SAFETY: chamadas de janela sem ponteiros além dos locais abaixo.
     unsafe {
@@ -164,12 +164,9 @@ fn find_parent() -> Result<(HWND, bool), String> {
         if !workerw.is_null() {
             return Ok((workerw, false));
         }
-        let child = FindWindowExW(progman, null_mut(), w!("WorkerW"), null());
-        if child.is_null() {
-            // 24H2 sem WorkerW: o próprio Progman recebe a janela, no fundo.
-            return Ok((progman, true));
-        }
-        Ok((child, true))
+        // 24H2 e 25H2: o WorkerW do papel de parede é filho do Progman, e a
+        // janela vai para o Progman, logo abaixo dos ícones.
+        Ok((progman, true))
     }
 }
 
